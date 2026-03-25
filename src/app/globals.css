@@ -1,24 +1,95 @@
 @import "tailwindcss";
 
 @theme {
+  /* LexTracker Brand Identity */
   --color-legal-gold: #d4af37;
   --color-legal-navy: #0a192f;
+  --color-slate-900: #0f172a;
+  --color-blue-600: #2563eb;
+
+  /* Custom Spacing & Radius */
+  --radius-dossier: 3rem;
+  --radius-vault: 2.5rem;
 }
 
 :root {
+  /* Dark Mode Default for that 'Premium Vault' feel */
   --background: #050505;
   --foreground: #ffffff;
+  --card-bg: rgba(255, 255, 255, 0.03);
+  --card-border: rgba(255, 255, 255, 0.1);
+}
+
+/* Light Mode Overrides (Optional - matches your page.tsx bg-[#F8FAFC]) */
+@media (prefers-color-scheme: light) {
+  :root {
+    --background: #f8fafc;
+    --foreground: #0f172a;
+    --card-bg: #ffffff;
+    --card-border: #e2e8f0;
+  }
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
+  font-feature-settings:
+    "cv02", "cv03", "cv04", "cv11"; /* Improves legibility for legal numbers */
+  -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
 }
 
-/* Smooth transitions for the Carousel */
+/* --- WHOLESOME UTILITIES --- */
+
+@layer utilities {
+  /* 1. The 'Audit Ledger' Scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.2); /* slate-400 with opacity */
+    border-radius: 20px;
+    border: 1px solid transparent;
+    background-clip: content-box;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #2563eb; /* Blue-600 on hover */
+  }
+
+  /* 2. Glassmorphism for Modals */
+  .glass-panel {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  /* 3. Typography: The 'Legal Header' style */
+  .text-procedural {
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    font-weight: 900;
+  }
+}
+
+/* --- ANIMATION ENGINE --- */
+
 .animate-fade-in {
-  animation: fadeIn 1.5s ease-in-out;
+  animation: fadeIn 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-slide-up {
+  animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-pulse-subtle {
+  animation: pulseSubtle 3s infinite ease-in-out;
 }
 
 @keyframes fadeIn {
@@ -27,5 +98,41 @@ body {
   }
   to {
     opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulseSubtle {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* --- PRINT STYLES --- */
+/* Critical for Legal apps: ensuring the 'Audit Ledger' prints cleanly */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .bg-white {
+    border: 1px solid #ddd !important;
   }
 }
