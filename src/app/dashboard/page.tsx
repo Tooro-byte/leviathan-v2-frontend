@@ -38,7 +38,7 @@ interface CaseData {
   title: string;
   caseNumber: string;
   description: string;
-  status: "ACTIVE" | "SECURED" | "APPEAL" | "PASSIVE" | "ARCHIVED";
+  status: string;
   clientName?: string;
   clientEmail?: string;
   createdAt?: string;
@@ -69,7 +69,7 @@ export default function LeviathanLedger() {
     description: "",
     clientName: "",
     clientEmail: "",
-    status: "PENDING", // Changed from ACTIVE to match backend default
+    status: "PENDING",
   });
 
   // --- INITIALIZATION ---
@@ -80,8 +80,10 @@ export default function LeviathanLedger() {
     const savedTheme = localStorage.getItem("theme");
     if (savedTheme === "light") {
       setDarkMode(false);
+      document.documentElement.classList.remove("dark");
     } else {
       setDarkMode(true);
+      document.documentElement.classList.add("dark");
     }
 
     const storedUser = localStorage.getItem("userName");
@@ -89,6 +91,15 @@ export default function LeviathanLedger() {
 
     fetchCases();
   }, []);
+
+  // Apply dark mode class to html element when darkMode changes
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [darkMode]);
 
   useEffect(() => {
     if (modals.create) {
@@ -107,6 +118,13 @@ export default function LeviathanLedger() {
     try {
       const res = await api.get("/api/cases");
       setCases(res.data);
+      console.log("Fetched cases:", res.data);
+      // Log status distribution for debugging
+      const statusCount: Record<string, number> = {};
+      res.data.forEach((case_: CaseData) => {
+        statusCount[case_.status] = (statusCount[case_.status] || 0) + 1;
+      });
+      console.log("Status distribution:", statusCount);
     } catch (err) {
       console.error("Registry sync failed");
     } finally {
@@ -114,13 +132,11 @@ export default function LeviathanLedger() {
     }
   };
 
-  // FIXED: Properly formatted JSON for backend
   const handleCreateCase = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormLoading(true);
 
     try {
-      // Prepare the payload matching the LegalCase entity fields
       const payload = {
         caseNumber: formData.caseNumber,
         title: formData.title,
@@ -132,7 +148,6 @@ export default function LeviathanLedger() {
 
       console.log("Sending case payload:", payload);
 
-      // Create FormData with JSON blob
       const formPayload = new FormData();
       const jsonBlob = new Blob([JSON.stringify(payload)], {
         type: "application/json",
@@ -146,7 +161,6 @@ export default function LeviathanLedger() {
       setCases([res.data, ...cases]);
       setModals({ ...modals, create: false });
 
-      // Reset form
       setFormData({
         title: "",
         caseNumber: "",
@@ -210,23 +224,59 @@ export default function LeviathanLedger() {
     [cases, searchQuery],
   );
 
-  const stats = useMemo(
-    () => ({
+  // UPDATED: Better stats that reflect actual case lifecycle
+  const stats = useMemo(() => {
+    // Count cases by status
+    const pending = cases.filter((c) => c.status === "PENDING").length;
+    const active = cases.filter(
+      (c) =>
+        c.status === "ACTIVE" ||
+        c.status === "AT ISSUE" ||
+        c.status === "IN DISCOVERY" ||
+        c.status === "IN TRIAL",
+    ).length;
+    const secured = cases.filter(
+      (c) =>
+        c.status === "SECURED" ||
+        c.status === "VERDICT REACHED" ||
+        c.status === "JUDGEMENT ENTERED",
+    ).length;
+    const appellate = cases.filter(
+      (c) => c.status === "APPEAL" || c.status === "ON APPEAL",
+    ).length;
+    const closed = cases.filter(
+      (c) =>
+        c.status === "CLOSED" ||
+        c.status === "DISMISSED" ||
+        c.status === "REMANDED",
+    ).length;
+
+    return {
       total: cases.length,
-      active: cases.filter((c) => c.status === "ACTIVE").length,
-      secured: cases.filter((c) => c.status === "SECURED").length,
-      appeals: cases.filter((c) => c.status === "APPEAL").length,
-    }),
-    [cases],
-  );
+      pending,
+      active,
+      secured,
+      appellate,
+      closed,
+      // Calculate completion rate (cases that are secured or closed)
+      completionRate:
+        cases.length > 0
+          ? Math.round(((secured + closed) / cases.length) * 100)
+          : 0,
+    };
+  }, [cases]);
+
+  const handleThemeToggle = () => {
+    const newMode = !darkMode;
+    setDarkMode(newMode);
+    localStorage.setItem("theme", newMode ? "dark" : "light");
+  };
 
   if (!mounted) return null;
 
   return (
-    <div
-      className={`${darkMode ? "dark" : ""} min-h-screen transition-colors duration-500`}
-    >
-      <div className="min-h-screen bg-[#F9FBFC] dark:bg-[#090B10] text-slate-900 dark:text-slate-100 font-sans selection:bg-blue-500/30">
+    <div className="min-h-screen transition-colors duration-500 bg-[#F9FBFC] dark:bg-[#090B10] text-slate-900 dark:text-slate-100 font-sans selection:bg-blue-500/30">
+      <div className="min-h-screen">
         {/* --- NAVIGATION BAR --- */}
         <nav className="print:hidden sticky top-0 z-[100] bg-white/80 dark:bg-[#090B10]/80 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800/50 px-8 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
@@ -245,11 +295,7 @@ export default function LeviathanLedger() {
 
           <div className="flex items-center gap-6">
             <button
-              onClick={() => {
-                const newMode = !darkMode;
-                setDarkMode(newMode);
-                localStorage.setItem("theme", newMode ? "dark" : "light");
-              }}
+              onClick={handleThemeToggle}
               className="p-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-slate-500"
             >
               {darkMode ? <Sun size={18} /> : <Moon size={18} />}
@@ -311,40 +357,70 @@ export default function LeviathanLedger() {
             </div>
           </header>
 
-          {/* --- ANALYTICS --- */}
+          {/* --- ANALYTICS - UPDATED WITH RELEVANT METRICS --- */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
             <StatCard
-              label="Active Files"
+              label="Pending Review"
+              value={stats.pending}
+              trend={`${stats.pending} cases`}
+              color="yellow"
+              icon="⏳"
+            />
+            <StatCard
+              label="Active Litigation"
               value={stats.active}
-              trend="+4"
+              trend={`${stats.active} in progress`}
               color="blue"
+              icon="⚖️"
             />
             <StatCard
-              label="Secured Assets"
+              label="Secured/Resolved"
               value={stats.secured}
-              trend="Stable"
+              trend={`${stats.secured} concluded`}
               color="emerald"
-            />
-            <StatCard
-              label="Appellate Cases"
-              value={stats.appeals}
-              trend="-1"
-              color="purple"
+              icon="✅"
             />
             <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 flex items-center justify-between shadow-sm">
               <div>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">
-                  Vault Integrity
+                  Case Completion
                 </p>
                 <p className="text-4xl font-black text-slate-800 dark:text-white">
-                  99%
+                  {stats.completionRate}%
+                </p>
+                <p className="text-[9px] text-slate-500 mt-1 font-bold">
+                  {stats.secured + stats.closed} of {stats.total} resolved
                 </p>
               </div>
-              <WholesomePieChart
-                active={stats.active}
-                secured={stats.secured}
-                appeals={stats.appeals}
-              />
+              <div className="relative w-16 h-16">
+                <svg className="w-full h-full transform -rotate-90">
+                  <circle
+                    cx="32"
+                    cy="32"
+                    r="28"
+                    fill="none"
+                    stroke="currentColor"
+                    className="text-slate-200 dark:text-slate-700"
+                    strokeWidth="6"
+                  />
+                  <circle
+                    cx="32"
+                    cy="32"
+                    r="28"
+                    fill="none"
+                    stroke="#3b82f6"
+                    strokeWidth="6"
+                    strokeDasharray={`${stats.completionRate * 1.76} 176`}
+                    strokeLinecap="round"
+                    className="transition-all duration-500"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-xs font-black">
+                    {stats.completionRate}%
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -427,7 +503,7 @@ export default function LeviathanLedger() {
           </div>
         </main>
 
-        {/* --- CASE DETAIL SIDEBAR --- */}
+        {/* --- CASE DETAIL SIDEBAR (same as before) --- */}
         <AnimatePresence>
           {selectedCase && (
             <>
@@ -564,7 +640,7 @@ export default function LeviathanLedger() {
           )}
         </AnimatePresence>
 
-        {/* --- CREATE CASE MODAL --- */}
+        {/* --- CREATE CASE MODAL (same as before) --- */}
         <AnimatePresence>
           {modals.create && (
             <div className="fixed inset-0 z-[400] flex items-center justify-center p-6 print:hidden">
@@ -765,20 +841,25 @@ export default function LeviathanLedger() {
 }
 
 // --- SUB-COMPONENTS ---
-function StatCard({ label, value, trend, color }: any) {
+function StatCard({ label, value, trend, color, icon }: any) {
   const styles: any = {
     blue: "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 border-blue-100 dark:border-blue-900/50",
     emerald:
       "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 border-emerald-100 dark:border-emerald-900/50",
     purple:
       "text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-500/10 border-purple-100 dark:border-purple-900/50",
+    yellow:
+      "text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-500/10 border-yellow-100 dark:border-yellow-900/50",
   };
   return (
     <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:-translate-y-1">
       <div className="flex justify-between items-start mb-4">
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-          {label}
-        </p>
+        <div className="flex items-center gap-2">
+          {icon && <span className="text-lg">{icon}</span>}
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+            {label}
+          </p>
+        </div>
         <span
           className={`text-[9px] font-black px-2.5 py-1 rounded-md border ${styles[color]}`}
         >
@@ -845,12 +926,32 @@ function WholesomePieChart({ active, secured, appeals }: any) {
 
 function StatusBadge({ status }: { status: string }) {
   const styles: any = {
+    PENDING:
+      "bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-100 dark:border-yellow-900/50",
     ACTIVE:
       "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-100 dark:border-blue-900/50",
+    "AT ISSUE":
+      "bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border-indigo-100 dark:border-indigo-900/50",
+    "IN DISCOVERY":
+      "bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-100 dark:border-cyan-900/50",
+    "IN TRIAL":
+      "bg-orange-50 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-100 dark:border-orange-900/50",
     SECURED:
+      "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/50",
+    "VERDICT REACHED":
+      "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/50",
+    "JUDGEMENT ENTERED":
       "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/50",
     APPEAL:
       "bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-100 dark:border-purple-900/50",
+    "ON APPEAL":
+      "bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-100 dark:border-purple-900/50",
+    CLOSED:
+      "bg-gray-50 dark:bg-gray-500/10 text-gray-700 dark:text-gray-400 border-gray-100 dark:border-gray-900/50",
+    DISMISSED:
+      "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-100 dark:border-red-900/50",
+    REMANDED:
+      "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-100 dark:border-amber-900/50",
   };
   return (
     <span

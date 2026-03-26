@@ -121,7 +121,7 @@ export default function LoginPage() {
           <div className="space-y-12">
             <div>
               <h1 className="text-2xl font-bold tracking-tighter uppercase mb-2 leading-none">
-                Security Portal
+                please login
               </h1>
               <div className="h-1 w-8 bg-blue-500" />
             </div>
@@ -313,7 +313,7 @@ export default function LoginPage() {
                 <Loader2 className="animate-spin h-4 w-4" />
               ) : (
                 <>
-                  AUTHENTICATE <ArrowRight size={14} />
+                  login <ArrowRight size={14} />
                 </>
               )}
             </button>

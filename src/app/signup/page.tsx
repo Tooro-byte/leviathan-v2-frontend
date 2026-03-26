@@ -22,6 +22,7 @@ export default function SignupPage() {
     username: "",
     email: "",
     password: "",
+    role: "CLIENT", // Changed from array to string
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -55,21 +56,33 @@ export default function SignupPage() {
     setLoading(true);
     setError("");
 
-    // CLEAR OLD CREDENTIALS: This prevents the 'Session Expired' error in your screenshot
+    // CLEAR OLD CREDENTIALS: This prevents the 'Session Expired' error
     localStorage.removeItem("lextracker_access_token");
 
     try {
-      // Sending ROLE_CLIENT as the default for this public registration page
-      await api.post("/api/auth/signup", {
-        ...formData,
-        role: ["ROLE_CLIENT"],
-      });
+      // FIXED: Send role as a string, not an array
+      // Backend expects a single string value for the role field
+      const payload = {
+        username: formData.username,
+        email: formData.email,
+        password: formData.password,
+        role: formData.role, // Now sending "CLIENT" as a string
+      };
+
+      console.log("Signup payload:", payload);
+
+      const response = await api.post("/api/auth/signup", payload);
+
+      console.log("Signup successful:", response.data);
 
       // Redirect with a success message
       router.push("/login?success=Account Initialized");
     } catch (err: any) {
+      console.error("Signup error:", err);
       const message =
-        err.response?.data?.message || "Registration Protocol Failed.";
+        err.response?.data?.error ||
+        err.response?.data?.message ||
+        "Registration Protocol Failed.";
       setError(message.toUpperCase());
     } finally {
       setLoading(false);
@@ -200,6 +213,7 @@ export default function SignupPage() {
                 onChange={(e) =>
                   setFormData({ ...formData, username: e.target.value })
                 }
+                value={formData.username}
               />
             </div>
 
@@ -216,6 +230,7 @@ export default function SignupPage() {
                 onChange={(e) =>
                   setFormData({ ...formData, email: e.target.value })
                 }
+                value={formData.email}
               />
             </div>
 
@@ -232,8 +247,12 @@ export default function SignupPage() {
                 onChange={(e) =>
                   setFormData({ ...formData, password: e.target.value })
                 }
+                value={formData.password}
               />
             </div>
+
+            {/* Optional: Role selector - hidden since it's always CLIENT */}
+            <input type="hidden" name="role" value="CLIENT" />
 
             <button
               disabled={loading}
