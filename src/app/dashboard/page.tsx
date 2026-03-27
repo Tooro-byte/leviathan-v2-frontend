@@ -30,6 +30,10 @@ import {
   Info,
   Sparkles,
   Send,
+  Calendar,
+  Phone,
+  MapPin,
+  Cake,
 } from "lucide-react";
 
 // --- TYPES ---
@@ -41,7 +45,13 @@ interface CaseData {
   status: string;
   clientName?: string;
   clientEmail?: string;
+  clientPhone?: string;
+  clientLocation?: string;
+  clientAge?: number;
+  clientDob?: string;
   createdAt?: string;
+  nextHearingDate?: string;
+  caseStage?: number;
 }
 
 export default function LeviathanLedger() {
@@ -62,14 +72,20 @@ export default function LeviathanLedger() {
   const [formLoading, setFormLoading] = useState(false);
   const [auditInput, setAuditInput] = useState("");
 
-  // --- FORM STATE ---
+  // --- FORM STATE - UPDATED with all new fields ---
   const [formData, setFormData] = useState({
     title: "",
     caseNumber: "",
     description: "",
     clientName: "",
     clientEmail: "",
+    clientPhone: "",
+    clientLocation: "",
+    clientAge: "",
+    clientDob: "",
     status: "PENDING",
+    nextHearingDate: "",
+    caseStage: 0,
   });
 
   // --- INITIALIZATION ---
@@ -112,6 +128,25 @@ export default function LeviathanLedger() {
     }
   }, [modals.create]);
 
+  // Auto-calculate age from DOB
+  useEffect(() => {
+    if (formData.clientDob) {
+      const birthDate = new Date(formData.clientDob);
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      if (
+        monthDiff < 0 ||
+        (monthDiff === 0 && today.getDate() < birthDate.getDate())
+      ) {
+        age--;
+      }
+      if (age > 0 && age < 120) {
+        setFormData((prev) => ({ ...prev, clientAge: age.toString() }));
+      }
+    }
+  }, [formData.clientDob]);
+
   // --- API ACTIONS ---
   const fetchCases = async () => {
     setLoading(true);
@@ -119,7 +154,6 @@ export default function LeviathanLedger() {
       const res = await api.get("/api/cases");
       setCases(res.data);
       console.log("Fetched cases:", res.data);
-      // Log status distribution for debugging
       const statusCount: Record<string, number> = {};
       res.data.forEach((case_: CaseData) => {
         statusCount[case_.status] = (statusCount[case_.status] || 0) + 1;
@@ -143,7 +177,13 @@ export default function LeviathanLedger() {
         description: formData.description,
         clientName: formData.clientName,
         clientEmail: formData.clientEmail,
+        clientPhone: formData.clientPhone,
+        clientLocation: formData.clientLocation,
+        clientAge: formData.clientAge ? parseInt(formData.clientAge) : null,
+        clientDob: formData.clientDob || null,
         status: formData.status,
+        nextHearingDate: formData.nextHearingDate || null,
+        caseStage: formData.caseStage,
       };
 
       console.log("Sending case payload:", payload);
@@ -161,13 +201,20 @@ export default function LeviathanLedger() {
       setCases([res.data, ...cases]);
       setModals({ ...modals, create: false });
 
+      // Reset form
       setFormData({
         title: "",
         caseNumber: "",
         description: "",
         clientName: "",
         clientEmail: "",
+        clientPhone: "",
+        clientLocation: "",
+        clientAge: "",
+        clientDob: "",
         status: "PENDING",
+        nextHearingDate: "",
+        caseStage: 0,
       });
     } catch (err: any) {
       console.error("Create case failed:", err);
@@ -224,9 +271,7 @@ export default function LeviathanLedger() {
     [cases, searchQuery],
   );
 
-  // UPDATED: Better stats that reflect actual case lifecycle
   const stats = useMemo(() => {
-    // Count cases by status
     const pending = cases.filter((c) => c.status === "PENDING").length;
     const active = cases.filter(
       (c) =>
@@ -241,9 +286,6 @@ export default function LeviathanLedger() {
         c.status === "VERDICT REACHED" ||
         c.status === "JUDGEMENT ENTERED",
     ).length;
-    const appellate = cases.filter(
-      (c) => c.status === "APPEAL" || c.status === "ON APPEAL",
-    ).length;
     const closed = cases.filter(
       (c) =>
         c.status === "CLOSED" ||
@@ -256,9 +298,7 @@ export default function LeviathanLedger() {
       pending,
       active,
       secured,
-      appellate,
       closed,
-      // Calculate completion rate (cases that are secured or closed)
       completionRate:
         cases.length > 0
           ? Math.round(((secured + closed) / cases.length) * 100)
@@ -357,7 +397,7 @@ export default function LeviathanLedger() {
             </div>
           </header>
 
-          {/* --- ANALYTICS - UPDATED WITH RELEVANT METRICS --- */}
+          {/* --- ANALYTICS --- */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
             <StatCard
               label="Pending Review"
@@ -503,7 +543,7 @@ export default function LeviathanLedger() {
           </div>
         </main>
 
-        {/* --- CASE DETAIL SIDEBAR (same as before) --- */}
+        {/* --- CASE DETAIL SIDEBAR --- */}
         <AnimatePresence>
           {selectedCase && (
             <>
@@ -518,7 +558,7 @@ export default function LeviathanLedger() {
                 initial={{ x: "100%" }}
                 animate={{ x: 0 }}
                 exit={{ x: "100%" }}
-                className="fixed inset-y-0 right-0 w-full max-w-xl bg-white dark:bg-[#0B0E14] shadow-2xl z-[300] p-12 flex flex-col border-l border-slate-100 dark:border-slate-800"
+                className="fixed inset-y-0 right-0 w-full max-w-xl bg-white dark:bg-[#0B0E14] shadow-2xl z-[300] p-12 flex flex-col border-l border-slate-100 dark:border-slate-800 overflow-y-auto"
               >
                 <div className="flex justify-between items-start mb-12">
                   <div className="space-y-3">
@@ -556,6 +596,11 @@ export default function LeviathanLedger() {
                       <p className="text-sm font-black text-slate-800 dark:text-slate-100 truncate">
                         {selectedCase.clientEmail || "No Email"}
                       </p>
+                      {selectedCase.clientPhone && (
+                        <p className="text-xs text-slate-500 mt-1">
+                          {selectedCase.clientPhone}
+                        </p>
+                      )}
                     </div>
                     <div className="p-6 rounded-[2rem] bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
                       <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-3">
@@ -640,71 +685,73 @@ export default function LeviathanLedger() {
           )}
         </AnimatePresence>
 
-        {/* --- CREATE CASE MODAL (same as before) --- */}
+        {/* --- CREATE CASE MODAL - FIXED SIZE AND SCROLLABLE --- */}
         <AnimatePresence>
           {modals.create && (
-            <div className="fixed inset-0 z-[400] flex items-center justify-center p-6 print:hidden">
+            <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 print:hidden">
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={() => setModals({ ...modals, create: false })}
-                className="absolute inset-0 bg-slate-900/30 dark:bg-black/90 backdrop-blur-xl"
+                className="absolute inset-0 bg-slate-900/50 dark:bg-black/80 backdrop-blur-md"
               />
               <motion.div
-                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
                 animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                className="relative bg-white dark:bg-[#0F1219] w-full max-w-2xl rounded-[3.5rem] shadow-2xl p-12 md:p-16 border border-slate-100 dark:border-slate-800"
+                exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                className="relative bg-white dark:bg-[#0F1219] w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-[2rem] shadow-2xl"
               >
-                <div className="flex justify-between items-center mb-12">
-                  <h2 className="text-4xl font-black tracking-tighter">
+                <div className="sticky top-0 bg-white dark:bg-[#0F1219] border-b border-slate-200 dark:border-slate-800 px-8 py-6 flex justify-between items-center z-10">
+                  <h2 className="text-2xl font-black tracking-tighter">
                     New Ledger Entry
                   </h2>
                   <button
                     onClick={() => setModals({ ...modals, create: false })}
-                    className="p-3 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-all"
+                    className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all"
                   >
-                    <X size={24} />
+                    <X size={20} />
                   </button>
                 </div>
 
-                <form onSubmit={handleCreateCase} className="space-y-8">
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-3">
+                <form onSubmit={handleCreateCase} className="p-8 space-y-6">
+                  {/* Row 1: Case Designation & Reference ID */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
                       <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">
                         Case Designation
                       </label>
                       <input
                         required
                         placeholder="Antitrust vs Goliath"
-                        className="w-full p-6 bg-slate-50 dark:bg-slate-800/50 border-none rounded-3xl text-sm font-bold focus:ring-4 ring-blue-500/10 outline-none transition-all"
+                        className="w-full p-4 bg-slate-50 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold focus:ring-2 ring-blue-500/10 outline-none transition-all"
                         value={formData.title}
                         onChange={(e) =>
                           setFormData({ ...formData, title: e.target.value })
                         }
                       />
                     </div>
-                    <div className="space-y-3">
+                    <div className="space-y-2">
                       <label className="text-[10px] font-black text-blue-500 uppercase ml-2 tracking-widest flex items-center gap-2">
                         <Sparkles size={12} /> Reference ID
                       </label>
                       <input
                         readOnly
-                        className="w-full p-6 bg-blue-500/5 dark:bg-blue-500/10 border border-blue-500/20 rounded-3xl text-sm font-mono font-black text-blue-600 outline-none cursor-not-allowed"
+                        className="w-full p-4 bg-blue-500/5 dark:bg-blue-500/10 border border-blue-500/20 rounded-2xl text-sm font-mono font-black text-blue-600 outline-none cursor-not-allowed"
                         value={formData.caseNumber}
                       />
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-3">
+                  {/* Row 2: Client Name & Email */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
                       <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">
                         Client Name
                       </label>
                       <input
-                        placeholder="Identity"
-                        className="w-full p-6 bg-slate-50 dark:bg-slate-800/50 border-none rounded-3xl text-sm font-bold outline-none"
+                        placeholder="Full legal name"
+                        className="w-full p-4 bg-slate-50 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold outline-none"
                         value={formData.clientName}
                         onChange={(e) =>
                           setFormData({
@@ -714,15 +761,15 @@ export default function LeviathanLedger() {
                         }
                       />
                     </div>
-                    <div className="space-y-3">
+                    <div className="space-y-2">
                       <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">
                         Email Address
                       </label>
                       <input
                         type="email"
                         required
-                        placeholder="Communication Node"
-                        className="w-full p-6 bg-slate-50 dark:bg-slate-800/50 border-none rounded-3xl text-sm font-bold outline-none"
+                        placeholder="client@example.com"
+                        className="w-full p-4 bg-slate-50 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold outline-none"
                         value={formData.clientEmail}
                         onChange={(e) =>
                           setFormData({
@@ -734,14 +781,128 @@ export default function LeviathanLedger() {
                     </div>
                   </div>
 
-                  <div className="space-y-3">
+                  {/* Row 3: Client Phone & Location */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest flex items-center gap-2">
+                        <Phone size={12} /> Phone Number
+                      </label>
+                      <input
+                        placeholder="07XX XXX XXX"
+                        className="w-full p-4 bg-slate-50 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold outline-none"
+                        value={formData.clientPhone}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            clientPhone: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest flex items-center gap-2">
+                        <MapPin size={12} /> Location
+                      </label>
+                      <input
+                        placeholder="City, District"
+                        className="w-full p-4 bg-slate-50 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold outline-none"
+                        value={formData.clientLocation}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            clientLocation: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 4: Date of Birth & Age */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest flex items-center gap-2">
+                        <Cake size={12} /> Date of Birth
+                      </label>
+                      <input
+                        type="date"
+                        className="w-full p-4 bg-slate-50 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold outline-none"
+                        value={formData.clientDob}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            clientDob: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">
+                        Age (Auto-calculated)
+                      </label>
+                      <input
+                        readOnly
+                        placeholder="Auto-calculated from DOB"
+                        className="w-full p-4 bg-slate-100 dark:bg-slate-700/30 border-none rounded-2xl text-sm font-bold text-slate-600 dark:text-slate-400 outline-none cursor-not-allowed"
+                        value={formData.clientAge}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 5: Next Hearing Date & Case Stage */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest flex items-center gap-2">
+                        <Calendar size={12} /> Next Hearing Date
+                      </label>
+                      <input
+                        type="datetime-local"
+                        className="w-full p-4 bg-slate-50 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold outline-none"
+                        value={formData.nextHearingDate}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            nextHearingDate: e.target.value,
+                          })
+                        }
+                      />
+                      <p className="text-[8px] text-slate-500 ml-2">
+                        Optional - Set the next court appearance
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">
+                        Case Stage
+                      </label>
+                      <select
+                        className="w-full p-4 bg-slate-50 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold outline-none cursor-pointer"
+                        value={formData.caseStage}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            caseStage: parseInt(e.target.value),
+                          })
+                        }
+                      >
+                        <option value={0}>Filed</option>
+                        <option value={1}>Discovery</option>
+                        <option value={2}>Hearing</option>
+                        <option value={3}>Judgment</option>
+                      </select>
+                      <p className="text-[8px] text-slate-500 ml-2">
+                        Current stage of the case progression
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Row 6: Dossier Abstract */}
+                  <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">
                       Dossier Abstract
                     </label>
                     <textarea
                       placeholder="Legal grounds and core evidence..."
-                      rows={4}
-                      className="w-full p-6 bg-slate-50 dark:bg-slate-800/50 border-none rounded-3xl text-sm font-bold outline-none resize-none"
+                      rows={3}
+                      className="w-full p-4 bg-slate-50 dark:bg-slate-800/50 border-none rounded-2xl text-sm font-bold outline-none resize-none"
                       value={formData.description}
                       onChange={(e) =>
                         setFormData({
@@ -754,10 +915,10 @@ export default function LeviathanLedger() {
 
                   <button
                     disabled={formLoading}
-                    className="w-full py-6 bg-slate-900 dark:bg-blue-600 text-white rounded-3xl font-black text-xs uppercase tracking-[0.4em] shadow-2xl hover:shadow-blue-500/30 transition-all flex items-center justify-center"
+                    className="w-full py-4 bg-slate-900 dark:bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-[0.4em] shadow-2xl hover:shadow-blue-500/30 transition-all flex items-center justify-center mt-6"
                   >
                     {formLoading ? (
-                      <Loader2 className="animate-spin" size={24} />
+                      <Loader2 className="animate-spin" size={20} />
                     ) : (
                       "Finalize Registry Entry"
                     )}
@@ -782,28 +943,28 @@ export default function LeviathanLedger() {
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                className="relative bg-white dark:bg-[#0F1219] w-full max-md rounded-[3rem] shadow-2xl p-12 border border-red-100 dark:border-red-900/20 text-center"
+                className="relative bg-white dark:bg-[#0F1219] w-full max-w-md rounded-[3rem] shadow-2xl p-8 border border-red-100 dark:border-red-900/20 text-center"
               >
-                <div className="w-20 h-20 bg-red-50 dark:bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner">
-                  <AlertTriangle size={40} />
+                <div className="w-16 h-16 bg-red-50 dark:bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <AlertTriangle size={32} />
                 </div>
-                <h3 className="text-2xl font-black mb-3 text-slate-900 dark:text-white">
+                <h3 className="text-xl font-black mb-2 text-slate-900 dark:text-white">
                   Expunge Record?
                 </h3>
-                <p className="text-slate-500 dark:text-slate-400 text-sm font-bold mb-10 leading-relaxed uppercase tracking-widest">
+                <p className="text-slate-500 dark:text-slate-400 text-xs font-bold mb-6 leading-relaxed uppercase tracking-widest">
                   This action is irreversible. The dossier will be permanently
                   shredded from the central vault.
                 </p>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => setModals({ ...modals, delete: false })}
-                    className="py-5 bg-slate-100 dark:bg-slate-800 rounded-2xl font-black text-[10px] uppercase tracking-widest text-slate-900 dark:text-white"
+                    className="py-3 bg-slate-100 dark:bg-slate-800 rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-900 dark:text-white"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleDeleteCase}
-                    className="py-5 bg-red-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-red-500/30"
+                    className="py-3 bg-red-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-red-500/30"
                   >
                     Purge
                   </button>
@@ -818,9 +979,19 @@ export default function LeviathanLedger() {
             width: 4px;
             height: 4px;
           }
+          .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+          }
           .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+          }
+          .dark .custom-scrollbar::-webkit-scrollbar-track {
             background: #1e293b;
-            border-radius: 20px;
+          }
+          .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #475569;
           }
           @media print {
             .print\:hidden {
@@ -852,112 +1023,71 @@ function StatCard({ label, value, trend, color, icon }: any) {
       "text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-500/10 border-yellow-100 dark:border-yellow-900/50",
   };
   return (
-    <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:-translate-y-1">
-      <div className="flex justify-between items-start mb-4">
+    <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:-translate-y-1">
+      <div className="flex justify-between items-start mb-3">
         <div className="flex items-center gap-2">
           {icon && <span className="text-lg">{icon}</span>}
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">
             {label}
           </p>
         </div>
         <span
-          className={`text-[9px] font-black px-2.5 py-1 rounded-md border ${styles[color]}`}
+          className={`text-[8px] font-black px-2 py-0.5 rounded-md border ${styles[color]}`}
         >
           {trend}
         </span>
       </div>
-      <p className="text-5xl font-black tracking-tighter text-slate-800 dark:text-white">
+      <p className="text-3xl font-black tracking-tighter text-slate-800 dark:text-white">
         {value}
       </p>
     </div>
   );
 }
 
-function WholesomePieChart({ active, secured, appeals }: any) {
-  const total = active + secured + appeals || 1;
-  const a = (active / total) * 100;
-  const s = (secured / total) * 100;
-  return (
-    <svg
-      viewBox="0 0 36 36"
-      className="w-20 h-20 transform -rotate-90 drop-shadow-2xl"
-    >
-      <circle
-        cx="18"
-        cy="18"
-        r="16"
-        fill="none"
-        stroke="currentColor"
-        className="text-slate-100 dark:text-slate-800"
-        strokeWidth="4"
-      />
-      <circle
-        cx="18"
-        cy="18"
-        r="16"
-        fill="none"
-        stroke="#a855f7"
-        strokeWidth="4"
-        strokeDasharray="100 100"
-      />
-      <circle
-        cx="18"
-        cy="18"
-        r="16"
-        fill="none"
-        stroke="#10b981"
-        strokeWidth="4"
-        strokeDasharray={`${s + a} 100`}
-        strokeLinecap="round"
-      />
-      <circle
-        cx="18"
-        cy="18"
-        r="16"
-        fill="none"
-        stroke="#3b82f6"
-        strokeWidth="4"
-        strokeDasharray={`${a} 100`}
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
 function StatusBadge({ status }: { status: string }) {
-  const styles: any = {
-    PENDING:
-      "bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-100 dark:border-yellow-900/50",
-    ACTIVE:
-      "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-100 dark:border-blue-900/50",
-    "AT ISSUE":
-      "bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border-indigo-100 dark:border-indigo-900/50",
-    "IN DISCOVERY":
-      "bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-100 dark:border-cyan-900/50",
-    "IN TRIAL":
-      "bg-orange-50 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-100 dark:border-orange-900/50",
-    SECURED:
-      "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/50",
-    "VERDICT REACHED":
-      "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/50",
-    "JUDGEMENT ENTERED":
-      "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/50",
-    APPEAL:
-      "bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-100 dark:border-purple-900/50",
-    "ON APPEAL":
-      "bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-100 dark:border-purple-900/50",
-    CLOSED:
-      "bg-gray-50 dark:bg-gray-500/10 text-gray-700 dark:text-gray-400 border-gray-100 dark:border-gray-900/50",
-    DISMISSED:
-      "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-100 dark:border-red-900/50",
-    REMANDED:
-      "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-100 dark:border-amber-900/50",
+  const getStatusStyles = (status: string) => {
+    const normalizedStatus = status?.toUpperCase() || "PENDING";
+
+    const styles: Record<string, string> = {
+      PENDING:
+        "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800",
+      ACTIVE:
+        "bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800",
+      "AT ISSUE":
+        "bg-indigo-100 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800",
+      "IN DISCOVERY":
+        "bg-cyan-100 dark:bg-cyan-950/30 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-800",
+      "IN TRIAL":
+        "bg-orange-100 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-800",
+      SECURED:
+        "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800",
+      "VERDICT REACHED":
+        "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800",
+      "JUDGEMENT ENTERED":
+        "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800",
+      APPEAL:
+        "bg-purple-100 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800",
+      "ON APPEAL":
+        "bg-purple-100 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800",
+      CLOSED:
+        "bg-gray-100 dark:bg-gray-800/50 text-gray-700 dark:text-gray-400 border-gray-200 dark:border-gray-700",
+      DISMISSED:
+        "bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800",
+      REMANDED:
+        "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800",
+    };
+
+    return (
+      styles[normalizedStatus] ||
+      "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700"
+    );
   };
+
   return (
     <span
-      className={`px-5 py-2 rounded-2xl text-[10px] font-black border uppercase tracking-tighter shadow-sm ${styles[status] || "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200"}`}
+      className={`px-3 py-1.5 rounded-xl text-[9px] font-black border uppercase tracking-tighter shadow-sm ${getStatusStyles(status)}`}
     >
-      {status}
+      {status || "PENDING"}
     </span>
   );
 }
