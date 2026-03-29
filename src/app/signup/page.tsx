@@ -10,7 +10,6 @@ import {
   ArrowRight,
   Loader2,
   Database,
-  Globe,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -22,7 +21,7 @@ export default function SignupPage() {
     username: "",
     email: "",
     password: "",
-    role: "CLIENT", // Changed from array to string
+    role: "CLIENT",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -56,33 +55,38 @@ export default function SignupPage() {
     setLoading(true);
     setError("");
 
-    // CLEAR OLD CREDENTIALS: This prevents the 'Session Expired' error
     localStorage.removeItem("lextracker_access_token");
 
     try {
-      // FIXED: Send role as a string, not an array
-      // Backend expects a single string value for the role field
       const payload = {
         username: formData.username,
         email: formData.email,
         password: formData.password,
-        role: formData.role, // Now sending "CLIENT" as a string
+        role: formData.role,
       };
 
       console.log("Signup payload:", payload);
 
-      const response = await api.post("/api/auth/signup", payload);
+      const response = await api.post("/api/auth/signup", payload, {
+        timeout: 30000,
+      });
 
       console.log("Signup successful:", response.data);
 
-      // Redirect with a success message
       router.push("/login?success=Account Initialized");
     } catch (err: any) {
       console.error("Signup error:", err);
-      const message =
-        err.response?.data?.error ||
-        err.response?.data?.message ||
-        "Registration Protocol Failed.";
+
+      let message = "Registration Protocol Failed.";
+
+      if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
+        message = "REQUEST TIMEOUT. PLEASE TRY AGAIN.";
+      } else if (err.response?.data?.error) {
+        message = err.response.data.error;
+      } else if (err.response?.data?.message) {
+        message = err.response.data.message;
+      }
+
       setError(message.toUpperCase());
     } finally {
       setLoading(false);
@@ -194,7 +198,7 @@ export default function SignupPage() {
               <motion.div
                 initial={{ x: -10, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
-                className="p-4 bg-red-500/10 border-l-2 border-red-500 text-red-400 text-[9px] font-black uppercase tracking-widest"
+                className="p-3 bg-red-500/10 border-l-2 border-red-500 text-red-400 text-[8px] font-black uppercase tracking-wider"
               >
                 {error}
               </motion.div>
@@ -251,12 +255,11 @@ export default function SignupPage() {
               />
             </div>
 
-            {/* Optional: Role selector - hidden since it's always CLIENT */}
             <input type="hidden" name="role" value="CLIENT" />
 
             <button
               disabled={loading}
-              className="w-full bg-blue-600 text-white py-5 font-black text-[10px] uppercase tracking-[0.5em] hover:bg-blue-500 transition-all flex items-center justify-center gap-3 mt-8 border border-blue-400/20 shadow-xl"
+              className="w-full bg-blue-600 text-white py-5 font-black text-[10px] uppercase tracking-[0.5em] hover:bg-blue-500 transition-all flex items-center justify-center gap-3 mt-8 border border-blue-400/20 shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <Loader2 className="animate-spin h-4 w-4" />

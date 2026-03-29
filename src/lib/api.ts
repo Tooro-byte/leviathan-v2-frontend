@@ -4,16 +4,21 @@ const AUTH_TOKEN_KEY = "lextracker_access_token";
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080",
-  timeout: 15000,
+  timeout: 30000, // Increased from 15000 to 30000 (30 seconds)
   headers: {
     Accept: "application/json",
   },
   withCredentials: true,
 });
 
-// --- REQUEST INTERCEPTOR: Clean Token Only ---
+// Add request interceptor for debugging
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    console.log(
+      `📤 ${config.method?.toUpperCase()} ${config.url}`,
+      config.data,
+    );
+
     const token =
       typeof window !== "undefined"
         ? localStorage.getItem(AUTH_TOKEN_KEY)
@@ -24,21 +29,29 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${cleanToken}`;
     }
 
-    // CRITICAL: NEVER set Content-Type for FormData requests
-    // Axios + browser will automatically set the correct multipart/form-data with boundary
     if (config.data instanceof FormData) {
       delete config.headers["Content-Type"];
     }
 
     return config;
   },
-  (error) => Promise.reject(error),
+  (error) => {
+    console.error("Request error:", error);
+    return Promise.reject(error);
+  },
 );
 
-// --- RESPONSE INTERCEPTOR: Terminal Messenger ---
+// Add response interceptor for debugging
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    console.log(`📥 ${response.status} ${response.config.url}`, response.data);
+    return response;
+  },
   async (error: AxiosError) => {
+    if (error.code === "ECONNABORTED") {
+      console.error("❌ Request timeout - server not responding");
+    }
+
     const status = error.response?.status;
     const responseData = error.response?.data as any;
     const url = error.config?.url;
@@ -63,6 +76,8 @@ api.interceptors.response.use(
           "...",
         timestamp: new Date().toLocaleTimeString(),
       };
+
+      console.error("API Error:", errorPayload);
 
       try {
         await fetch("/api/debug-logger", {

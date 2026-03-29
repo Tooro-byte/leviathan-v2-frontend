@@ -1,16 +1,13 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import api from "@/lib/api";
 import withAuth from "@/components/auth/withAuth";
 import {
   ShieldCheck,
-  FileUp,
   CheckCircle2,
   ArrowRight,
-  Zap,
-  History,
   Loader2,
   AlertCircle,
   Scale,
@@ -18,23 +15,13 @@ import {
   Calendar,
   MessageSquare,
   FileText,
-  Upload,
-  X,
   Eye,
   Download,
-  Check,
   AlertTriangle,
-  User,
-  Mail,
-  Phone,
-  MapPin,
-  CreditCard,
   ChevronRight,
   TrendingUp,
   Award,
   Bell,
-  Settings,
-  HelpCircle,
   LogOut,
   Moon,
   Sun,
@@ -44,82 +31,14 @@ import {
   DollarSign,
   Shield,
   Lock,
-  Sparkles,
-  Gift,
-  Star,
   Users,
-  Building,
-  Briefcase,
-  Heart,
-  Flag,
-  Globe,
-  Activity,
-  BarChart3,
-  PieChart,
   FileCheck,
-  Clock8,
   CalendarDays,
-  Send,
-  Paperclip,
-  Image,
-  Camera,
-  Mic,
-  Video,
-  Music,
-  Archive,
-  Trash2,
-  Edit,
-  MoreHorizontal,
-  Share2,
-  Bookmark,
-  ThumbsUp,
-  ThumbsDown,
-  MessageCircle,
-  PhoneCall,
-  Video as VideoIcon,
-  Users as UsersIcon,
-  Link,
-  Copy,
-  ExternalLink,
-  Download as DownloadIcon,
-  Printer,
-  Search,
-  Filter,
-  Sliders,
-  Grid,
-  List,
-  Layout,
-  Maximize2,
-  Minimize2,
-  RefreshCw,
-  Settings as SettingsIcon,
-  User as UserIcon,
-  LogOut as LogOutIcon,
-  HelpCircle as HelpCircleIcon,
-  Bell as BellIcon,
-  Mail as MailIcon,
-  Calendar as CalendarIcon,
-  Clock as ClockIcon,
-  MapPin as MapPinIcon,
-  Phone as PhoneIcon,
-  Globe as GlobeIcon,
-  Award as AwardIcon,
-  TrendingUp as TrendingUpIcon,
-  Users as UsersIcon2,
-  Building as BuildingIcon,
-  Briefcase as BriefcaseIcon,
-  Heart as HeartIcon,
-  Flag as FlagIcon,
-  Star as StarIcon,
-  Sparkles as SparklesIcon,
-  Gift as GiftIcon,
-  Lock as LockIcon,
   Shield as ShieldIcon,
   FileText as FileTextIcon,
   FolderOpen as FolderOpenIcon,
-  DollarSign as DollarSignIcon,
-  CreditCard as CreditCardIcon,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 interface CaseData {
   id: number;
@@ -147,13 +66,19 @@ interface UploadedFile {
   uploadedAt: string;
   sourceOrigin: string;
   uploadedBy: string;
-  uploadedByRole: string;
   fileHash?: string;
 }
 
+interface Notification {
+  id: number;
+  message: string;
+  time: string;
+  read: boolean;
+}
+
 function ClientDashboard() {
+  const router = useRouter();
   const [caseData, setCaseData] = useState<CaseData | null>(null);
-  const [userData, setUserData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -163,24 +88,13 @@ function ClientDashboard() {
   >("overview");
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [notifications, setNotifications] = useState([
-    {
-      id: 1,
-      message: "Case status updated to AT ISSUE",
-      time: "2 hours ago",
-      read: false,
-    },
-    {
-      id: 2,
-      message: "New evidence uploaded by your lawyer",
-      time: "1 day ago",
-      read: true,
-    },
-  ]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [downloading, setDownloading] = useState<number | null>(null);
 
   useEffect(() => {
     setMounted(true);
-    fetchUserData();
     fetchCaseData();
   }, []);
 
@@ -189,6 +103,20 @@ function ClientDashboard() {
       fetchUploadedFiles();
     }
   }, [caseData?.id]);
+
+  useEffect(() => {
+    if (!caseData?.auditLogs) return;
+    const auditNotifications = caseData.auditLogs
+      .map((log, index) => ({
+        id: Date.now() + index,
+        message: log,
+        time: "Just now",
+        read: false,
+      }))
+      .reverse();
+    setNotifications(auditNotifications);
+    setUnreadCount(auditNotifications.filter((n) => !n.read).length);
+  }, [caseData?.auditLogs]);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("clientTheme");
@@ -209,13 +137,22 @@ function ClientDashboard() {
     }
   };
 
-  const fetchUserData = async () => {
-    try {
-      const response = await api.get("/api/auth/me");
-      setUserData(response.data);
-    } catch (err) {
-      console.error("Failed to fetch user data");
-    }
+  const handleLogout = () => {
+    localStorage.removeItem("lextracker_access_token");
+    localStorage.removeItem("userName");
+    router.push("/login");
+  };
+
+  const markNotificationAsRead = (id: number) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
+    );
+    setUnreadCount((prev) => Math.max(0, prev - 1));
+  };
+
+  const markAllAsRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setUnreadCount(0);
   };
 
   const fetchCaseData = async () => {
@@ -223,7 +160,6 @@ function ClientDashboard() {
       setIsLoading(true);
       const response = await api.get("/api/cases/my-case");
       setCaseData(response.data);
-      console.log("Case data:", response.data);
     } catch (err: any) {
       setError(err.message || "Could not connect to the LexTracker Vault.");
     } finally {
@@ -235,14 +171,15 @@ function ClientDashboard() {
     if (!caseData?.id) return;
     try {
       const response = await api.get(`/api/documents/case/${caseData.id}`);
-      setUploadedFiles(response.data);
-      console.log("Uploaded files:", response.data);
+      setUploadedFiles(response.data || []);
     } catch (err) {
-      console.error("Failed to fetch uploaded files");
+      console.error("Failed to fetch uploaded files:", err);
+      setUploadedFiles([]);
     }
   };
 
   const handleDownloadFile = async (fileId: number, fileName: string) => {
+    setDownloading(fileId);
     try {
       const response = await api.get(`/api/documents/download/${fileId}`, {
         responseType: "blob",
@@ -259,18 +196,55 @@ function ClientDashboard() {
     } catch (err) {
       console.error("Download error:", err);
       alert("Failed to download file. Please try again.");
+    } finally {
+      setDownloading(null);
     }
   };
 
-  const handleViewFile = async (fileId: number) => {
+  const handleViewFile = async (
+    fileId: number,
+    fileName: string = "document",
+  ) => {
     try {
       const response = await api.get(`/api/documents/download/${fileId}`, {
         responseType: "blob",
       });
 
-      const fileURL = window.URL.createObjectURL(new Blob([response.data]));
-      window.open(fileURL, "_blank");
-      setTimeout(() => window.URL.revokeObjectURL(fileURL), 100);
+      const blob = new Blob([response.data], { type: "application/pdf" });
+      const fileURL = URL.createObjectURL(blob);
+
+      const newWindow = window.open();
+      if (newWindow) {
+        newWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>${fileName}</title>
+            <style>
+              body, html {
+                margin: 0;
+                padding: 0;
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+              }
+              iframe {
+                width: 100%;
+                height: 100%;
+                border: none;
+              }
+            </style>
+          </head>
+          <body>
+            <iframe src="${fileURL}"></iframe>
+          </body>
+        </html>
+      `);
+      } else {
+        window.open(fileURL, "_blank");
+      }
+
+      setTimeout(() => URL.revokeObjectURL(fileURL), 60000);
     } catch (err) {
       console.error("View error:", err);
       alert("Failed to view file. Please try again.");
@@ -278,12 +252,9 @@ function ClientDashboard() {
   };
 
   const getStageIndex = (status: string = "", caseStage: number = 0) => {
-    // Priority: Use database caseStage if available
     if (caseStage !== undefined && caseStage !== null && caseStage >= 0) {
       return caseStage;
     }
-
-    // Fallback only if no database value exists
     const stages: Record<string, number> = {
       PENDING: 0,
       ACTIVE: 0,
@@ -318,7 +289,6 @@ function ClientDashboard() {
           (1000 * 60 * 60 * 24),
       )
     : null;
-
   const formattedNextHearingDate = nextCourtDate
     ? nextCourtDate.toLocaleDateString("en-GB", {
         weekday: "long",
@@ -328,26 +298,25 @@ function ClientDashboard() {
       })
     : null;
 
-  // Helper to determine who uploaded the document
   const getUploaderLabel = (file: UploadedFile) => {
-    if (file.uploadedByRole === "LAWYER") {
-      return { text: "Your Lawyer", color: "text-purple-600", icon: "👨‍⚖️" };
-    } else if (file.uploadedByRole === "CLERK") {
-      return { text: "Court Clerk", color: "text-amber-600", icon: "📋" };
-    } else {
-      return { text: "You", color: "text-emerald-600", icon: "👤" };
+    if (
+      file.uploadedBy?.toLowerCase().includes("lawyer") ||
+      file.uploadedBy === "Principal Lawyer"
+    ) {
+      return { text: "Counsel", color: "text-purple-600", icon: "⚖️" };
     }
+    return { text: "Registry", color: "text-amber-600", icon: "📋" };
   };
 
   if (!mounted || isLoading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-950 dark:to-slate-900">
         <div className="relative">
-          <div className="absolute inset-0 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full blur-3xl opacity-20 animate-pulse" />
-          <Loader2 className="h-16 w-16 text-indigo-600 animate-spin relative z-10" />
+          <div className="absolute inset-0 bg-gradient-to-r from-amber-700 to-amber-900 rounded-full blur-3xl opacity-20 animate-pulse" />
+          <Loader2 className="h-16 w-16 text-amber-700 animate-spin relative z-10" />
         </div>
-        <p className="mt-6 text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 animate-pulse">
-          Unlocking Justice Vault...
+        <p className="mt-6 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 dark:text-slate-400 animate-pulse">
+          Accessing the Vault...
         </p>
       </div>
     );
@@ -355,24 +324,24 @@ function ClientDashboard() {
 
   if (error || !caseData) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-6">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 p-6">
         <motion.div
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          className="max-w-md w-full bg-white/80 backdrop-blur-xl p-12 rounded-[3rem] shadow-2xl border border-slate-200 text-center"
+          className="max-w-md w-full bg-white dark:bg-slate-900 p-12 rounded-[2rem] shadow-2xl border border-slate-200 dark:border-slate-800 text-center"
         >
-          <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-6">
-            <AlertTriangle className="h-10 w-10 text-amber-500" />
+          <div className="w-20 h-20 bg-amber-100 dark:bg-amber-950/30 rounded-full flex items-center justify-center mx-auto mb-6">
+            <AlertTriangle className="h-10 w-10 text-amber-600" />
           </div>
-          <h2 className="text-2xl font-black text-slate-900 mb-2">
-            Sync Error
+          <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-2">
+            Registry Error
           </h2>
-          <p className="text-slate-500 mb-8">
-            {error || "No case found for this client"}
+          <p className="text-slate-500 dark:text-slate-400 mb-8">
+            {error || "No case record found for this client"}
           </p>
           <button
             onClick={() => window.location.reload()}
-            className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-indigo-600 transition-all"
+            className="w-full py-4 bg-slate-900 dark:bg-amber-700 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-700 dark:hover:bg-amber-600 transition-all"
           >
             Retry Connection
           </button>
@@ -385,35 +354,36 @@ function ClientDashboard() {
     <div
       className={`min-h-screen transition-all duration-500 ${darkMode ? "dark" : ""}`}
     >
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
         {/* Mobile Menu Button */}
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="fixed top-6 left-6 z-50 lg:hidden bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl p-3 rounded-2xl shadow-lg"
+          className="fixed top-6 left-6 z-50 lg:hidden bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl p-3 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700"
         >
-          <Menu size={24} />
+          <Menu size={22} />
         </button>
 
-        {/* Sidebar Overlay */}
         {sidebarOpen && (
           <div
-            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+            className="fixed inset-0 bg-black/60 z-40 lg:hidden"
             onClick={() => setSidebarOpen(false)}
           />
         )}
 
         {/* Sidebar */}
         <aside
-          className={`fixed left-0 top-0 h-full w-80 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-r border-slate-200 dark:border-slate-800 z-40 transform transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
+          className={`fixed left-0 top-0 h-full w-80 bg-white dark:bg-slate-900 shadow-2xl border-r border-slate-200 dark:border-slate-800 z-40 transform transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
         >
           <div className="p-8">
-            <div className="flex items-center gap-3 mb-12">
-              <div className="bg-gradient-to-br from-indigo-600 to-purple-600 p-2.5 rounded-xl shadow-xl">
+            <div className="flex items-center gap-3 mb-12 pb-4 border-b border-slate-200 dark:border-slate-800">
+              <div className="bg-gradient-to-br from-amber-700 to-amber-900 p-2.5 rounded-xl shadow-lg">
                 <Scale size={24} className="text-white" />
               </div>
               <div>
-                <h1 className="font-black text-lg tracking-tight">Leviathan</h1>
-                <p className="text-[9px] font-bold text-indigo-600 tracking-widest">
+                <h1 className="font-black text-xl tracking-tight text-slate-900 dark:text-white">
+                  Leviathan
+                </h1>
+                <p className="text-[8px] font-bold text-amber-600 dark:text-amber-500 tracking-widest uppercase">
                   Client Portal
                 </p>
               </div>
@@ -423,7 +393,7 @@ function ClientDashboard() {
               {[
                 {
                   icon: Home,
-                  label: "Dashboard",
+                  label: "Registry",
                   active: activeTab === "overview",
                   tab: "overview",
                 },
@@ -435,13 +405,13 @@ function ClientDashboard() {
                 },
                 {
                   icon: DollarSign,
-                  label: "Payments",
+                  label: "Treasury",
                   active: activeTab === "payments",
                   tab: "payments",
                 },
                 {
                   icon: MessageSquare,
-                  label: "Messages",
+                  label: "Correspondence",
                   active: activeTab === "messages",
                   tab: "messages",
                 },
@@ -452,83 +422,156 @@ function ClientDashboard() {
                     setActiveTab(item.tab as any);
                     setSidebarOpen(false);
                   }}
-                  className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl transition-all duration-300 group ${
+                  className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl transition-all duration-300 group ${
                     item.active
-                      ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-500/20"
+                      ? "bg-gradient-to-r from-amber-700 to-amber-800 text-white shadow-lg shadow-amber-700/20"
                       : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
                   }`}
                 >
-                  <item.icon size={20} />
-                  <span className="font-bold text-sm">{item.label}</span>
+                  <item.icon size={18} />
+                  <span className="font-semibold text-sm">{item.label}</span>
                   {item.active && (
-                    <ChevronRight size={16} className="ml-auto" />
+                    <ChevronRight size={14} className="ml-auto" />
                   )}
                 </button>
               ))}
             </div>
 
             <div className="absolute bottom-8 left-8 right-8">
-              <div className="p-6 bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30 rounded-2xl border border-indigo-200 dark:border-indigo-800">
-                <Shield className="text-indigo-600 mb-3" size={24} />
-                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600 mb-2">
-                  Case Shield Active
+              <div className="p-5 bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-950/30 dark:to-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                <Shield
+                  className="text-amber-700 dark:text-amber-500 mb-2"
+                  size={22}
+                />
+                <p className="text-[9px] font-black uppercase tracking-wider text-amber-800 dark:text-amber-400 mb-1">
+                  Seal of Integrity
                 </p>
-                <p className="text-[8px] text-slate-500 leading-relaxed">
-                  All actions are encrypted and timestamped on the immutable
-                  ledger.
+                <p className="text-[7px] text-amber-600 dark:text-amber-500 leading-relaxed">
+                  All records encrypted and timestamped on the immutable ledger.
                 </p>
               </div>
-              <button
-                onClick={toggleDarkMode}
-                className="mt-4 w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-black"
-              >
-                {darkMode ? <Sun size={14} /> : <Moon size={14} />}
-                {darkMode ? "Light Mode" : "Dark Mode"}
-              </button>
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={toggleDarkMode}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-semibold"
+                >
+                  {darkMode ? <Sun size={14} /> : <Moon size={14} />}{" "}
+                  {darkMode ? "Light" : "Dark"}
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-xs font-semibold hover:bg-red-100 dark:hover:bg-red-900/30 transition-all"
+                >
+                  <LogOut size={14} /> Exit
+                </button>
+              </div>
             </div>
           </div>
         </aside>
 
         {/* Main Content */}
-        <main className="lg:ml-80 p-6 lg:p-12">
+        <main className="lg:ml-80 p-6 lg:p-10">
           {/* Header */}
-          <header className="mb-12">
+          <header className="mb-10">
             <div className="flex justify-between items-start">
               <div>
-                <h1 className="text-5xl lg:text-7xl font-black tracking-tighter bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">
-                  Justice,
-                  <br />
-                  <span className="italic">Digitized.</span>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-px bg-amber-600" />
+                  <span className="text-[10px] font-black text-amber-600 dark:text-amber-500 tracking-[0.3em] uppercase">
+                    The Judiciary
+                  </span>
+                </div>
+                <h1 className="text-5xl lg:text-6xl font-black tracking-tight text-slate-900 dark:text-white">
+                  Lex{" "}
+                  <span className="text-amber-700 dark:text-amber-500">
+                    Tracker
+                  </span>
                 </h1>
-                <div className="flex items-center gap-3 mt-4">
-                  <div className="h-1 w-12 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full" />
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">
+                <div className="flex items-center gap-3 mt-3">
+                  <div className="h-px w-8 bg-slate-300 dark:bg-slate-700" />
+                  <p className="text-[9px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                     Case No. {caseData.caseNumber}
                   </p>
                 </div>
               </div>
-              <div className="hidden lg:block">
-                <div className="flex items-center gap-4">
-                  <button className="relative p-3 rounded-2xl bg-white dark:bg-slate-800 shadow-sm hover:shadow-md transition-all">
-                    <Bell size={20} />
-                    {notifications.filter((n) => !n.read).length > 0 && (
-                      <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full" />
+
+              <div className="flex items-center gap-4">
+                {/* Notifications Dropdown */}
+                <div className="relative">
+                  <button
+                    onClick={() => setShowNotifications(!showNotifications)}
+                    className="relative p-2.5 rounded-xl bg-white dark:bg-slate-800 shadow-md hover:shadow-lg transition-all border border-slate-200 dark:border-slate-700"
+                  >
+                    <Bell
+                      size={18}
+                      className="text-slate-600 dark:text-slate-400"
+                    />
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-[8px] font-black text-white">
+                        {unreadCount}
+                      </span>
                     )}
                   </button>
-                  <div className="flex items-center gap-3 pl-4 border-l border-slate-200 dark:border-slate-700">
-                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center text-white font-black">
-                      {userData?.username?.charAt(0) ||
-                        caseData.clientName?.charAt(0) ||
-                        "C"}
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-black">
-                        {caseData.clientName || userData?.username || "Client"}
-                      </p>
-                      <p className="text-[9px] text-slate-400 uppercase tracking-wider">
-                        ROLE_CLIENT
-                      </p>
-                    </div>
+
+                  <AnimatePresence>
+                    {showNotifications && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 10 }}
+                        className="absolute right-0 mt-2 w-80 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 z-50 overflow-hidden"
+                      >
+                        <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
+                          <h4 className="text-xs font-black uppercase tracking-wider">
+                            Audit Trail
+                          </h4>
+                          {unreadCount > 0 && (
+                            <button
+                              onClick={markAllAsRead}
+                              className="text-[9px] text-amber-600 hover:text-amber-700"
+                            >
+                              Mark all read
+                            </button>
+                          )}
+                        </div>
+                        <div className="max-h-96 overflow-y-auto">
+                          {notifications.length > 0 ? (
+                            notifications.map((notif) => (
+                              <div
+                                key={notif.id}
+                                onClick={() => markNotificationAsRead(notif.id)}
+                                className={`p-3 border-b border-slate-100 dark:border-slate-700 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-all ${!notif.read ? "bg-amber-50/50 dark:bg-amber-950/20" : ""}`}
+                              >
+                                <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                                  {notif.message}
+                                </p>
+                                <span className="text-[9px] text-slate-400 mt-1 block">
+                                  {notif.time}
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="p-6 text-center text-slate-400 text-xs">
+                              No new notifications
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                <div className="flex items-center gap-3 pl-3 border-l border-slate-200 dark:border-slate-700">
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-700 to-amber-900 flex items-center justify-center text-white font-bold text-sm shadow-lg">
+                    {caseData.clientName?.charAt(0) || "C"}
+                  </div>
+                  <div className="hidden md:block">
+                    <p className="text-sm font-bold text-slate-800 dark:text-white">
+                      {caseData.clientName || "Client"}
+                    </p>
+                    <p className="text-[8px] text-amber-600 dark:text-amber-500 uppercase tracking-wider font-semibold">
+                      Registered Party
+                    </p>
                   </div>
                 </div>
               </div>
@@ -546,32 +589,26 @@ function ClientDashboard() {
                 transition={{ duration: 0.3 }}
                 className="space-y-8"
               >
-                {/* Stats Grid */}
+                {/* Stats Grid - Beautiful Legal Theme Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  <StatCard
-                    icon={Clock}
+                  <JudicialStatCard
+                    icon={Calendar}
                     label="Next Hearing"
                     value={
                       daysUntilNextDate !== null ? daysUntilNextDate : "TBD"
                     }
-                    suffix={daysUntilNextDate !== null ? "days" : ""}
-                    color="indigo"
-                    trend={
-                      daysUntilNextDate !== null ? "Upcoming" : "Not Scheduled"
-                    }
+                    suffix={daysUntilNextDate !== null ? " days" : ""}
+                    color="amber"
+                    trend="Scheduled"
                   />
-                  <StatCard
+                  <JudicialStatCard
                     icon={FileCheck}
                     label="Case Status"
-                    value={caseData.status}
+                    value="Registry Verified"
                     color="emerald"
-                    trend={
-                      currentStage === 3
-                        ? "Final Stage"
-                        : `${currentStage + 1}/4 Stages`
-                    }
+                    trend={`Stage ${currentStage + 1}/4`}
                   />
-                  <StatCard
+                  <JudicialStatCard
                     icon={DollarSign}
                     label="Balance"
                     value={new Intl.NumberFormat("en-UG", {
@@ -579,74 +616,57 @@ function ClientDashboard() {
                       currency: "UGX",
                       maximumFractionDigits: 0,
                     }).format(caseData.balance)}
-                    color="amber"
-                    trend={caseData.balance === 0 ? "Settled" : "Pending"}
+                    color="slate"
+                    trend={caseData.balance === 0 ? "Settled" : "Outstanding"}
                   />
-                  <StatCard
-                    icon={Users}
+                  <JudicialStatCard
+                    icon={Scale}
                     label="Lead Counsel"
-                    value={caseData.primaryCounsel || "Assigned"}
+                    value="Principal Lawyer"
                     color="purple"
-                    trend="Available"
+                    trend="Active"
                   />
                 </div>
 
                 {/* Progression Timeline */}
-                <section className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-[2.5rem] p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
+                <section className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
                   <div className="flex items-center justify-between mb-8">
-                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                      <TrendingUpIcon size={14} className="text-indigo-500" />{" "}
-                      Progression Timeline
+                    <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-2">
+                      <TrendingUp size={14} className="text-amber-600" /> Court
+                      Progression
                     </h3>
                     <div className="flex items-center gap-2">
-                      <AwardIcon size={12} className="text-amber-500" />
-                      <span className="text-[9px] font-black text-slate-400">
-                        Integrity Score: 99%
+                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                      <span className="text-[8px] font-mono text-slate-400">
+                        Integrity Verified
                       </span>
                     </div>
                   </div>
                   <div className="relative">
-                    <div className="absolute top-8 left-0 right-0 h-1 bg-slate-100 dark:bg-slate-800 rounded-full" />
+                    <div className="absolute top-6 left-0 right-0 h-0.5 bg-slate-200 dark:bg-slate-700" />
                     <div className="relative flex justify-between">
-                      {["Filed", "Discovery", "Hearing", "Judgment"].map(
+                      {["Petition", "Discovery", "Trial", "Judgment"].map(
                         (stage, i) => (
                           <div
                             key={stage}
                             className="flex flex-col items-center"
                           >
                             <div
-                              className={`relative z-10 w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-500 ${
-                                i <= currentStage
-                                  ? "bg-gradient-to-br from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-500/30"
-                                  : "bg-slate-100 dark:bg-slate-800 text-slate-400"
-                              }`}
+                              className={`relative z-10 w-12 h-12 rounded-full flex items-center justify-center transition-all duration-500 border-2 ${i <= currentStage ? "bg-amber-700 border-amber-700 text-white shadow-lg shadow-amber-700/20" : "bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-400"}`}
                             >
                               {i < currentStage ? (
-                                <CheckCircle2 size={28} />
+                                <CheckCircle2 size={18} />
                               ) : (
-                                <span className="text-xl font-black">
+                                <span className="text-sm font-bold">
                                   {i + 1}
                                 </span>
                               )}
                             </div>
                             <span
-                              className={`mt-4 text-[10px] font-black uppercase tracking-widest ${
-                                i === currentStage
-                                  ? "text-indigo-600"
-                                  : "text-slate-400"
-                              }`}
+                              className={`mt-3 text-[9px] font-bold uppercase tracking-wider ${i === currentStage ? "text-amber-700 dark:text-amber-500" : "text-slate-400"}`}
                             >
                               {stage}
                             </span>
-                            {i === currentStage && (
-                              <motion.div
-                                initial={{ scale: 0 }}
-                                animate={{ scale: 1 }}
-                                className="absolute -top-2 -right-2 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center text-[8px] text-white font-black"
-                              >
-                                !
-                              </motion.div>
-                            )}
                           </div>
                         ),
                       )}
@@ -654,48 +674,42 @@ function ClientDashboard() {
                   </div>
 
                   {nextCourtDate ? (
-                    <div className="mt-8 p-4 bg-indigo-50 dark:bg-indigo-950/30 rounded-2xl border border-indigo-200 dark:border-indigo-800">
+                    <div className="mt-8 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-xl border-l-4 border-amber-600">
                       <div className="flex items-start gap-3">
                         <CalendarDays
-                          size={18}
-                          className="text-indigo-600 mt-0.5"
+                          size={16}
+                          className="text-amber-600 mt-0.5"
                         />
                         <div>
-                          <p className="text-[10px] font-black text-indigo-600 uppercase tracking-wider">
-                            Next Court Appearance
+                          <p className="text-[9px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+                            Next Appearance
                           </p>
-                          <p className="text-sm font-bold text-slate-900 dark:text-white mt-1">
+                          <p className="text-sm font-bold text-slate-800 dark:text-white mt-1">
                             {formattedNextHearingDate}
                           </p>
-                          <p className="text-[10px] text-slate-500 mt-1">
-                            {daysUntilNextDate === 0 && "Today!"}
-                            {daysUntilNextDate === 1 && "Tomorrow!"}
+                          <p className="text-[9px] text-amber-600 dark:text-amber-500 mt-1 font-medium">
+                            {daysUntilNextDate === 0 && "Today"}
+                            {daysUntilNextDate === 1 && "Tomorrow"}
                             {daysUntilNextDate &&
                               daysUntilNextDate > 1 &&
                               `${daysUntilNextDate} days remaining`}
-                            {daysUntilNextDate &&
-                              daysUntilNextDate < 0 &&
-                              "Past due - contact your lawyer"}
                           </p>
                         </div>
                       </div>
                     </div>
                   ) : (
-                    <div className="mt-8 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
+                    <div className="mt-8 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
                       <div className="flex items-start gap-3">
                         <CalendarDays
-                          size={18}
+                          size={16}
                           className="text-slate-400 mt-0.5"
                         />
                         <div>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                          <p className="text-[9px] font-black text-slate-500 uppercase tracking-wider">
                             Next Hearing
                           </p>
                           <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-1">
-                            No hearing scheduled yet
-                          </p>
-                          <p className="text-[10px] text-slate-400 mt-1">
-                            Your lawyer will update this when a date is set
+                            Awaiting scheduling
                           </p>
                         </div>
                       </div>
@@ -704,89 +718,65 @@ function ClientDashboard() {
                 </section>
 
                 {/* Case Details & Audit Logs */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {/* Case Details */}
-                  <section className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-[2.5rem] p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
-                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <section className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
+                    <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-5 flex items-center gap-2">
                       <FileTextIcon size={14} /> Case Dossier
                     </h3>
-                    <h4 className="text-2xl font-black text-slate-900 dark:text-white mb-4">
+                    <h4 className="text-xl font-bold text-slate-800 dark:text-white mb-3">
                       {caseData.title}
                     </h4>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-6">
+                    <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-5">
                       {caseData.description}
                     </p>
-                    <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black text-slate-400 uppercase">
-                          Filed Date
-                        </span>
-                        <span className="text-xs font-bold">
+                    <div className="space-y-2.5 pt-4 border-t border-slate-100 dark:border-slate-800">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-slate-500">Filed</span>
+                        <span className="font-medium text-slate-700 dark:text-slate-300">
                           {new Date(caseData.createdAt).toLocaleDateString()}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black text-slate-400 uppercase">
-                          Current Stage
-                        </span>
-                        <span className="text-xs font-bold">
-                          {currentStage === 0 && "Filed"}
-                          {currentStage === 1 && "Discovery"}
-                          {currentStage === 2 && "Hearing"}
-                          {currentStage === 3 && "Judgment"}
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-slate-500">Current Stage</span>
+                        <span className="font-medium text-amber-700 dark:text-amber-500">
+                          {currentStage === 0 && "Petition Filed"}
+                          {currentStage === 1 && "Discovery Phase"}
+                          {currentStage === 2 && "Trial Proceedings"}
+                          {currentStage === 3 && "Awaiting Judgment"}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black text-slate-400 uppercase">
-                          Client Name
-                        </span>
-                        <span className="text-xs font-bold">
-                          {caseData.clientName ||
-                            userData?.username ||
-                            "Not specified"}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black text-slate-400 uppercase">
-                          Client Email
-                        </span>
-                        <span className="text-xs font-bold">
-                          {caseData.clientEmail ||
-                            userData?.email ||
-                            "Not specified"}
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-slate-500">Registered Party</span>
+                        <span className="font-medium text-slate-700 dark:text-slate-300">
+                          {caseData.clientName || "Not specified"}
                         </span>
                       </div>
                     </div>
                   </section>
 
-                  {/* Audit Shield */}
-                  <section className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-[2.5rem] p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
-                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
-                      <ShieldIcon size={14} /> Audit Shield
+                  <section className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
+                    <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-5 flex items-center gap-2">
+                      <ShieldIcon size={14} /> Audit Trail
                     </h3>
-                    <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                    <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2 custom-scrollbar">
                       {memoizedLogs.length > 0 ? (
                         memoizedLogs.map((log, i) => (
                           <motion.div
-                            initial={{ opacity: 0, x: -10 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: i * 0.05 }}
                             key={i}
-                            className="flex items-start gap-3 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 group hover:border-indigo-200 dark:hover:border-indigo-800 transition-all"
+                            initial={{ opacity: 0, x: -5 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: i * 0.03 }}
+                            className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-100 dark:border-slate-700 group hover:border-amber-200 transition-all"
                           >
-                            <div className="w-2 h-2 rounded-full bg-indigo-500 mt-1.5" />
-                            <p className="flex-1 text-xs font-medium text-slate-700 dark:text-slate-300 leading-relaxed">
+                            <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5" />
+                            <p className="flex-1 text-[11px] font-medium text-slate-600 dark:text-slate-400 leading-relaxed">
                               {log}
                             </p>
-                            <ArrowRight
-                              size={14}
-                              className="text-slate-300 group-hover:text-indigo-500 transition-colors"
-                            />
                           </motion.div>
                         ))
                       ) : (
-                        <div className="text-center py-8 text-slate-400 italic">
-                          Awaiting registry entries...
+                        <div className="text-center py-8 text-slate-400 text-sm italic">
+                          No registry entries recorded
                         </div>
                       )}
                     </div>
@@ -795,6 +785,7 @@ function ClientDashboard() {
               </motion.div>
             )}
 
+            {/* Evidence Vault */}
             {activeTab === "evidence" && (
               <motion.div
                 key="evidence"
@@ -802,115 +793,116 @@ function ClientDashboard() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
-                className="space-y-8"
+                className="space-y-6"
               >
-                {/* Evidence Vault Header */}
-                <section className="bg-gradient-to-br from-indigo-600 to-purple-600 rounded-[2.5rem] p-8 text-white relative overflow-hidden">
-                  <div className="absolute inset-0 bg-black/20" />
-                  <div className="absolute -right-20 -bottom-20 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
-                  <div className="relative z-10">
-                    <div className="flex items-center gap-3 mb-6">
-                      <FolderOpen size={24} className="text-white/80" />
-                      <h3 className="text-xl font-black">Evidence Vault</h3>
-                    </div>
-                    <p className="text-white/80 mb-4 max-w-md">
-                      All case-related documents and evidence submitted by your
-                      legal team.
-                    </p>
-                    <div className="flex items-center gap-2 text-white/60 text-xs">
-                      <Lock size={12} />
-                      <span>
-                        Encrypted & Timestamped • Immutable Chain of Custody
-                      </span>
-                    </div>
+                <section className="bg-gradient-to-r from-amber-800 to-amber-900 rounded-3xl p-8 text-white">
+                  <div className="flex items-center gap-3 mb-4">
+                    <FolderOpen size={26} className="text-amber-300" />
+                    <h3 className="text-xl font-black">Evidence Registry</h3>
+                  </div>
+                  <p className="text-amber-100/80 text-sm mb-3 max-w-md">
+                    All exhibits and case documents submitted to the court
+                    registry.
+                  </p>
+                  <div className="flex items-center gap-3 text-amber-300/60 text-[10px]">
+                    <Lock size={10} />
+                    <span>Encrypted Chain of Custody • Court-Admissible</span>
                   </div>
                 </section>
 
-                {/* Files List - Professional Display */}
-                <section className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-[2.5rem] p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                      <FileTextIcon size={14} /> Case Documents (
+                <section className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
+                  <div className="flex items-center justify-between mb-5">
+                    <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-2">
+                      <FileTextIcon size={12} /> Exhibits (
                       {uploadedFiles.length})
                     </h3>
-                    <div className="text-[9px] text-slate-400">
+                    <div className="text-[8px] font-mono text-slate-400">
                       Last updated: {new Date().toLocaleDateString()}
                     </div>
                   </div>
 
                   {uploadedFiles.length > 0 ? (
-                    <div className="space-y-3">
+                    <div className="space-y-2.5">
                       {uploadedFiles.map((file, index) => {
                         const uploader = getUploaderLabel(file);
                         return (
                           <motion.div
+                            key={file.id}
                             initial={{ opacity: 0, x: -10 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ delay: index * 0.05 }}
-                            key={file.id}
-                            className="flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 hover:border-indigo-200 dark:hover:border-indigo-800 transition-all group"
+                            className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-100 dark:border-slate-700 hover:border-amber-300 transition-all group"
                           >
                             <div className="flex items-center gap-4 flex-1">
-                              <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl flex items-center justify-center">
+                              <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-lg flex items-center justify-center">
                                 <FileText
-                                  size={24}
-                                  className="text-indigo-600"
+                                  size={18}
+                                  className="text-amber-700"
                                 />
                               </div>
                               <div className="flex-1">
-                                <div className="flex items-center gap-3 mb-1">
-                                  <p className="font-bold text-sm text-slate-800 dark:text-slate-200">
+                                <div className="flex items-center gap-2 mb-0.5">
+                                  <p className="font-semibold text-sm text-slate-800 dark:text-slate-200">
                                     {file.fileName}
                                   </p>
                                   <span
-                                    className={`text-[8px] font-black px-2 py-0.5 rounded-full ${uploader.color} bg-opacity-10`}
+                                    className={`text-[7px] font-black px-1.5 py-0.5 rounded-full ${uploader.color} bg-opacity-10`}
                                   >
                                     {uploader.icon} {uploader.text}
                                   </span>
                                 </div>
-                                <div className="flex items-center gap-4 text-[10px] text-slate-500">
+                                <div className="flex items-center gap-3 text-[9px] text-slate-500">
                                   <span>
-                                    📅{" "}
                                     {new Date(
                                       file.uploadedAt,
                                     ).toLocaleDateString()}
                                   </span>
                                   <span>
-                                    📄 {(file.fileSize / 1024).toFixed(2)} KB
+                                    {(file.fileSize / 1024).toFixed(1)} KB
                                   </span>
                                   {file.sourceOrigin && (
-                                    <span>📍 Source: {file.sourceOrigin}</span>
+                                    <span>Source: {file.sourceOrigin}</span>
                                   )}
                                 </div>
                                 {file.fileHash && (
-                                  <p className="text-[8px] font-mono text-slate-400 mt-1 truncate">
-                                    SHA-256: {file.fileHash.substring(0, 16)}...
+                                  <p className="text-[7px] font-mono text-slate-400 mt-1 truncate">
+                                    SHA-256: {file.fileHash.substring(0, 20)}...
                                   </p>
                                 )}
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
                               <button
-                                onClick={() => handleViewFile(file.id)}
-                                className="p-2.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-all group/btn"
-                                title="View Document"
+                                onClick={() =>
+                                  handleViewFile(file.id, file.fileName)
+                                }
+                                className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all"
+                                title="View Exhibit"
                               >
                                 <Eye
-                                  size={18}
-                                  className="text-slate-500 group-hover/btn:text-indigo-600"
+                                  size={16}
+                                  className="text-slate-500 hover:text-amber-600"
                                 />
                               </button>
                               <button
                                 onClick={() =>
                                   handleDownloadFile(file.id, file.fileName)
                                 }
-                                className="p-2.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-all group/btn"
-                                title="Download Document"
+                                disabled={downloading === file.id}
+                                className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all flex items-center gap-1"
+                                title="Download"
                               >
-                                <Download
-                                  size={18}
-                                  className="text-slate-500 group-hover/btn:text-emerald-600"
-                                />
+                                {downloading === file.id ? (
+                                  <Loader2
+                                    size={14}
+                                    className="animate-spin text-amber-600"
+                                  />
+                                ) : (
+                                  <Download
+                                    size={16}
+                                    className="text-slate-500 hover:text-amber-600"
+                                  />
+                                )}
                               </button>
                             </div>
                           </motion.div>
@@ -918,16 +910,14 @@ function ClientDashboard() {
                       })}
                     </div>
                   ) : (
-                    <div className="text-center py-16 text-slate-400">
-                      <div className="w-20 h-20 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <FileText size={32} className="text-slate-300" />
-                      </div>
+                    <div className="text-center py-12 text-slate-400">
+                      <FileText size={40} className="mx-auto mb-3 opacity-30" />
                       <p className="text-sm font-medium">
-                        No documents uploaded yet
+                        No exhibits on record
                       </p>
-                      <p className="text-[10px] mt-2 max-w-sm mx-auto">
-                        Your legal team will upload case documents, evidence,
-                        and court filings here as they become available.
+                      <p className="text-[10px] mt-1">
+                        Counsel will upload case documents as they become
+                        available.
                       </p>
                     </div>
                   )}
@@ -942,49 +932,39 @@ function ClientDashboard() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
-                className="space-y-8"
+                className="space-y-6"
               >
-                {/* Balance Card */}
-                <section className="bg-gradient-to-br from-emerald-600 to-teal-600 rounded-[2.5rem] p-8 text-white relative overflow-hidden">
-                  <div className="absolute inset-0 bg-black/20" />
-                  <div className="relative z-10">
-                    <p className="text-white/80 text-sm mb-2">
-                      Current Balance
-                    </p>
-                    <p className="text-6xl font-black mb-4">
-                      {new Intl.NumberFormat("en-UG", {
-                        style: "currency",
-                        currency: "UGX",
-                        maximumFractionDigits: 0,
-                      }).format(caseData.balance)}
-                    </p>
-                    <p className="text-white/70 text-xs">Outstanding Amount</p>
-                  </div>
+                <section className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-3xl p-8 text-white">
+                  <p className="text-slate-300 text-sm mb-1">
+                    Court Fees & Costs
+                  </p>
+                  <p className="text-4xl font-bold mb-1">
+                    {new Intl.NumberFormat("en-UG", {
+                      style: "currency",
+                      currency: "UGX",
+                      maximumFractionDigits: 0,
+                    }).format(caseData.balance)}
+                  </p>
+                  <p className="text-slate-400 text-xs">Outstanding Balance</p>
                 </section>
-
-                {/* Payment Information */}
-                <section className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-[2.5rem] p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-6">
+                <section className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
+                  <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-5">
                     Payment Instructions
                   </h3>
                   <div className="space-y-4">
-                    <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
-                      <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                        Bank Transfer Details
-                      </p>
-                      <div className="space-y-2 text-xs">
+                    <div className="p-4 bg-slate-50 dark:bg-slate-800/30 rounded-xl">
+                      <p className="text-sm font-semibold mb-2">Bank Details</p>
+                      <div className="space-y-1.5 text-xs">
                         <p>
                           <span className="text-slate-500">Bank:</span> Stanbic
                           Bank Uganda
                         </p>
                         <p>
-                          <span className="text-slate-500">Account Name:</span>{" "}
+                          <span className="text-slate-500">Account:</span>{" "}
                           LexTracker Uganda
                         </p>
                         <p>
-                          <span className="text-slate-500">
-                            Account Number:
-                          </span>{" "}
+                          <span className="text-slate-500">Number:</span>{" "}
                           9030012345678
                         </p>
                         <p>
@@ -993,13 +973,13 @@ function ClientDashboard() {
                         </p>
                       </div>
                     </div>
-                    <div className="p-4 bg-amber-50 dark:bg-amber-950/30 rounded-2xl border border-amber-200 dark:border-amber-800">
-                      <p className="text-[10px] font-black text-amber-600 uppercase tracking-wider">
-                        Important Note
+                    <div className="p-3 bg-amber-50 dark:bg-amber-950/20 rounded-xl border-l-2 border-amber-500">
+                      <p className="text-[9px] font-black text-amber-700 uppercase">
+                        Important
                       </p>
                       <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                        Please use your Case Number as reference when making
-                        payments. Allow 2-3 business days for confirmation.
+                        Quote your Case Number for all payments. Allow 2-3
+                        business days for confirmation.
                       </p>
                     </div>
                   </div>
@@ -1014,22 +994,19 @@ function ClientDashboard() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
-                className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-[2.5rem] p-8 border border-slate-200 dark:border-slate-800 shadow-xl"
+                className="bg-white dark:bg-slate-900 rounded-3xl p-12 border border-slate-200 dark:border-slate-800 shadow-xl text-center"
               >
-                <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
-                  <MessageSquare size={14} /> Secure Messaging
+                <MessageSquare
+                  size={48}
+                  className="mx-auto mb-4 text-slate-300 dark:text-slate-600"
+                />
+                <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300 mb-2">
+                  Secure Correspondence
                 </h3>
-                <div className="text-center py-12 text-slate-400">
-                  <MessageSquare
-                    size={48}
-                    className="mx-auto mb-4 opacity-30"
-                  />
-                  <p className="text-sm">Coming Soon</p>
-                  <p className="text-[10px] mt-2">
-                    Direct messaging with your legal team will be available in
-                    the next update
-                  </p>
-                </div>
+                <p className="text-sm text-slate-500 max-w-sm mx-auto">
+                  Direct messaging with counsel will be available in the next
+                  update.
+                </p>
               </motion.div>
             )}
           </AnimatePresence>
@@ -1038,29 +1015,29 @@ function ClientDashboard() {
 
       <style jsx global>{`
         .custom-scrollbar::-webkit-scrollbar {
-          width: 4px;
+          width: 3px;
         }
         .custom-scrollbar::-webkit-scrollbar-track {
           background: #f1f1f1;
           border-radius: 10px;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #888;
+          background: #d4a373;
           border-radius: 10px;
         }
         .dark .custom-scrollbar::-webkit-scrollbar-track {
           background: #1e293b;
         }
         .dark .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #475569;
+          background: #b45309;
         }
       `}</style>
     </div>
   );
 }
 
-// Stat Card Component
-function StatCard({
+// Updated Judicial Stat Card - Beautiful Legal Theme with Teal Accent
+function JudicialStatCard({
   icon: Icon,
   label,
   value,
@@ -1072,35 +1049,51 @@ function StatCard({
   label: string;
   value: string | number;
   suffix?: string;
-  color: "indigo" | "emerald" | "amber" | "purple";
+  color: "amber" | "emerald" | "slate" | "purple";
   trend: string;
 }) {
   const colors = {
-    indigo: "from-indigo-600 to-purple-600",
-    emerald: "from-emerald-600 to-teal-600",
-    amber: "from-amber-600 to-orange-600",
-    purple: "from-purple-600 to-pink-600",
+    amber: "from-teal-700 to-teal-800 border-teal-700",
+    emerald: "from-emerald-700 to-emerald-800 border-emerald-700",
+    slate: "from-slate-700 to-slate-800 border-slate-700",
+    purple: "from-purple-700 to-purple-800 border-purple-700",
+  };
+
+  const textColors = {
+    amber: "text-teal-700 dark:text-teal-400",
+    emerald: "text-emerald-700 dark:text-emerald-400",
+    slate: "text-slate-700 dark:text-slate-400",
+    purple: "text-purple-700 dark:text-purple-400",
   };
 
   return (
-    <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-xl hover:shadow-2xl transition-all hover:-translate-y-1 group">
-      <div className="flex items-center justify-between mb-4">
+    <div className="group relative overflow-hidden bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1">
+      {/* Subtle Teal Legal Background Accent */}
+      <div className="absolute inset-0 bg-gradient-to-br from-teal-50/40 to-transparent dark:from-teal-950/30 opacity-60 group-hover:opacity-80 transition-opacity" />
+
+      <div className="flex items-center justify-between mb-4 relative z-10">
         <div
-          className={`w-12 h-12 bg-gradient-to-br ${colors[color]} rounded-2xl flex items-center justify-center text-white shadow-lg`}
+          className={`w-12 h-12 bg-gradient-to-br ${colors[color]} rounded-2xl flex items-center justify-center text-white shadow-lg ring-1 ring-white/20`}
         >
           <Icon size={20} />
         </div>
-        <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-1 rounded-lg">
+        <span className="text-[10px] font-semibold px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
           {trend}
         </span>
       </div>
-      <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+
+      <p
+        className={`text-[10px] font-bold uppercase tracking-[0.08em] mb-1.5 ${textColors[color]}`}
+      >
         {label}
       </p>
-      <p className="text-2xl font-black text-slate-900 dark:text-white">
-        {value}{" "}
+
+      <p className="text-2xl font-black text-slate-900 dark:text-white tracking-tight leading-none">
+        {value}
         {suffix && (
-          <span className="text-sm font-normal text-slate-400">{suffix}</span>
+          <span className="text-base font-medium text-slate-400 ml-1">
+            {suffix}
+          </span>
         )}
       </p>
     </div>

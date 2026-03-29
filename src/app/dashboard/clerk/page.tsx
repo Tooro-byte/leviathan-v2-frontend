@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { motion } from "framer-motion";
+import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import api from "@/lib/api";
+import withAuth from "@/components/auth/withAuth";
+import { useRouter } from "next/navigation";
 import {
   MapPin,
   ClipboardList,
@@ -11,20 +13,309 @@ import {
   CheckCircle2,
   Loader2,
   AlertCircle,
+  Scale,
+  Bell,
+  LogOut,
+  Moon,
+  Sun,
+  Menu,
+  Home,
+  FolderOpen,
+  FileCheck,
+  Clock,
+  Users,
+  Building,
+  Briefcase,
+  Shield,
+  Lock,
+  ChevronRight,
+  X,
+  Upload,
+  FileText,
+  Eye,
+  Download,
+  Calendar,
+  TrendingUp,
+  Award,
+  MessageSquare,
+  DollarSign,
+  User,
+  Mail,
+  Phone,
+  MapPin as MapPinIcon,
+  CalendarDays,
+  Send,
+  Paperclip,
+  Image,
+  Plus,
+  Trash2,
+  Edit,
+  MoreHorizontal,
+  Search,
+  Filter,
+  RefreshCw,
 } from "lucide-react";
-import withAuth from "@/components/auth/withAuth";
+
+interface Task {
+  id: string;
+  title: string;
+  description: string;
+  caseNumber: string;
+  caseId: number;
+  status: "PENDING" | "IN_PROGRESS" | "COMPLETED";
+  priority: "HIGH" | "MEDIUM" | "LOW";
+  assignedBy: string;
+  createdAt: string;
+}
+
+interface Case {
+  id: number;
+  caseNumber: string;
+  title: string;
+  clientName: string;
+  status: string;
+  nextHearingDate?: string;
+}
+
+interface Exhibit {
+  id: number;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  uploadedAt: string;
+  sourceOrigin: string;
+  caseId: number;
+  caseNumber: string;
+  uploadedBy: string;
+  fileHash?: string;
+}
 
 function ClerkDashboard() {
+  const router = useRouter();
+  const [mounted, setMounted] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<
+    "tasks" | "exhibits" | "registry" | "service"
+  >("tasks");
+
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(true);
+
+  const [exhibits, setExhibits] = useState<Exhibit[]>([]);
+  const [loadingExhibits, setLoadingExhibits] = useState(true);
+  const [uploadModal, setUploadModal] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadSource, setUploadSource] = useState("");
+  const [selectedCaseId, setSelectedCaseId] = useState<number | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const [cases, setCases] = useState<Case[]>([]);
+  const [loadingCases, setLoadingCases] = useState(true);
+  const [selectedCaseForRegistry, setSelectedCaseForRegistry] =
+    useState<Case | null>(null);
+  const [registryNote, setRegistryNote] = useState("");
+  const [verifying, setVerifying] = useState(false);
+
   const [serving, setServing] = useState(false);
+  const [gpsLocation, setGpsLocation] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+  const [selectedCaseForService, setSelectedCaseForService] =
+    useState<Case | null>(null);
+  const [serviceError, setServiceError] = useState<string | null>(null);
+
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
-  // LOGIC: Verified GPS Service of Process
+  useEffect(() => {
+    setMounted(true);
+    fetchAllData();
+  }, []);
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("clerkTheme");
+    if (savedTheme === "dark") {
+      setDarkMode(true);
+      document.documentElement.classList.add("dark");
+    }
+  }, []);
+
+  const toggleDarkMode = () => {
+    const newMode = !darkMode;
+    setDarkMode(newMode);
+    localStorage.setItem("clerkTheme", newMode ? "dark" : "light");
+    if (newMode) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("lextracker_access_token");
+    localStorage.removeItem("userName");
+    router.push("/login");
+  };
+
+  const fetchAllData = async () => {
+    setLoadingTasks(true);
+    setLoadingCases(true);
+    setLoadingExhibits(true);
+
+    try {
+      await Promise.all([fetchTasks(), fetchCases(), fetchExhibits()]);
+    } catch (err) {
+      console.error("Error fetching data:", err);
+      setError("Failed to load dashboard data");
+    } finally {
+      setLoadingTasks(false);
+      setLoadingCases(false);
+      setLoadingExhibits(false);
+    }
+  };
+
+  const fetchTasks = async () => {
+    try {
+      const response = await api.get("/api/tasks/assigned");
+      setTasks(response.data);
+    } catch (err) {
+      console.error("Failed to fetch tasks:", err);
+      setTasks([]);
+    }
+  };
+
+  const fetchCases = async () => {
+    try {
+      const response = await api.get("/api/cases");
+      setCases(response.data);
+    } catch (err) {
+      console.error("Failed to fetch cases:", err);
+      setCases([]);
+    }
+  };
+
+  const fetchExhibits = async () => {
+    try {
+      const response = await api.get("/api/documents/recent");
+      setExhibits(response.data);
+    } catch (err) {
+      console.error("Failed to fetch exhibits:", err);
+      setExhibits([]);
+    }
+  };
+
+  const handleTaskComplete = async (taskId: string) => {
+    try {
+      await api.patch(`/api/tasks/${taskId}/complete`);
+      await fetchTasks();
+      const newNotification = {
+        id: Date.now(),
+        message: "Task completed successfully",
+        time: "Just now",
+        read: false,
+      };
+      setNotifications([newNotification, ...notifications]);
+      setUnreadCount((prev) => prev + 1);
+    } catch (err) {
+      console.error("Failed to complete task:", err);
+      alert("Failed to complete task. Please try again.");
+    }
+  };
+
+  const handleUploadExhibit = async () => {
+    if (!selectedFile || !uploadSource || !selectedCaseId) {
+      alert("Please select a file, provide source, and select a case");
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      formData.append("sourceOrigin", uploadSource);
+
+      const response = await api.post(
+        `/api/documents/upload/${selectedCaseId}`,
+        formData,
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+        },
+      );
+
+      await fetchExhibits();
+      setUploadModal(false);
+      setSelectedFile(null);
+      setUploadSource("");
+      setSelectedCaseId(null);
+
+      const newNotification = {
+        id: Date.now(),
+        message: "Exhibit uploaded successfully",
+        time: "Just now",
+        read: false,
+      };
+      setNotifications([newNotification, ...notifications]);
+      setUnreadCount((prev) => prev + 1);
+      alert("Exhibit uploaded successfully!");
+    } catch (err) {
+      console.error("Upload failed:", err);
+      alert("Upload failed. Please try again.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRegistryVerification = async () => {
+    if (!selectedCaseForRegistry) {
+      alert("Please select a case");
+      return;
+    }
+
+    setVerifying(true);
+    try {
+      await api.post(
+        `/api/cases/${selectedCaseForRegistry.id}/registry-verify`,
+        {
+          note: registryNote,
+          timestamp: new Date().toISOString(),
+        },
+      );
+
+      setSelectedCaseForRegistry(null);
+      setRegistryNote("");
+
+      const newNotification = {
+        id: Date.now(),
+        message: `Registry verified for case ${selectedCaseForRegistry.caseNumber}`,
+        time: "Just now",
+        read: false,
+      };
+      setNotifications([newNotification, ...notifications]);
+      setUnreadCount((prev) => prev + 1);
+      alert("Registry verification recorded successfully!");
+    } catch (err) {
+      console.error("Verification failed:", err);
+      alert("Verification failed. Please try again.");
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   const handleServiceOfProcess = () => {
+    if (!selectedCaseForService) {
+      alert("Please select a case first");
+      return;
+    }
+
     setServing(true);
-    setError(null);
+    setServiceError(null);
 
     if (!("geolocation" in navigator)) {
-      setError("GPS not supported on this device.");
+      setServiceError("GPS not supported on this device.");
       setServing(false);
       return;
     }
@@ -32,148 +323,616 @@ function ClerkDashboard() {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
+        setGpsLocation({ lat: latitude, lng: longitude });
 
         try {
-          // Sending coordinates to the backend for SHA-256 Fingerprinting
-          await api.post("/api/v1/service-of-process/verify", {
+          await api.post("/api/service-of-process/verify", {
+            caseId: selectedCaseForService.id,
+            caseNumber: selectedCaseForService.caseNumber,
             lat: latitude,
             lng: longitude,
             timestamp: new Date().toISOString(),
           });
 
           setServing(false);
-          // In a real app, use a Toast notification here instead of alert()
-          console.log("📍 Location Hashed to Vault.");
+          setSelectedCaseForService(null);
+
+          const newNotification = {
+            id: Date.now(),
+            message: `Service of process recorded for ${selectedCaseForService.caseNumber}`,
+            time: "Just now",
+            read: false,
+          };
+          setNotifications([newNotification, ...notifications]);
+          setUnreadCount((prev) => prev + 1);
+          alert("Service of Process recorded successfully!");
         } catch (err: any) {
-          setError(err.message || "Failed to secure GPS data.");
+          console.error("Service recording failed:", err);
+          setServiceError("Failed to record service of process");
           setServing(false);
         }
       },
       (err) => {
-        setError("Location access denied. Please enable GPS.");
+        setServiceError("Location access denied. Please enable GPS.");
         setServing(false);
       },
       { enableHighAccuracy: true, timeout: 15000 },
     );
   };
 
+  const getPriorityBadge = (priority: string) => {
+    switch (priority) {
+      case "HIGH":
+        return (
+          <span className="text-[8px] font-black px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+            HIGH
+          </span>
+        );
+      case "MEDIUM":
+        return (
+          <span className="text-[8px] font-black px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+            MEDIUM
+          </span>
+        );
+      default:
+        return (
+          <span className="text-[8px] font-black px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+            LOW
+          </span>
+        );
+    }
+  };
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-950 dark:to-slate-900">
+        <Loader2 className="h-12 w-12 text-amber-700 animate-spin" />
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-[#F8FAFC] p-4 lg:p-8">
-      <header className="mb-10 flex flex-col lg:flex-row justify-between lg:items-center gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-black uppercase rounded">
-              Registry PWA
-            </span>
-            <span className="text-slate-400 text-[10px] font-bold">
-              V 1.0.4
-            </span>
-          </div>
-          <h1 className="text-4xl font-black text-slate-900 tracking-tighter uppercase italic">
-            Registry Command
-          </h1>
-        </div>
-      </header>
-
-      {/* ERROR BANNER */}
-      {error && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-red-700 text-sm font-bold"
+    <div
+      className={`min-h-screen transition-all duration-500 ${darkMode ? "dark" : ""}`}
+    >
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+        {/* Mobile Menu Button */}
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="fixed top-6 left-6 z-50 lg:hidden bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl p-3 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700"
         >
-          <AlertCircle size={18} /> {error}
-        </motion.div>
-      )}
+          <Menu size={22} />
+        </button>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-8 space-y-8">
-          {/* TASK FULFILLMENT */}
-          <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm">
-            <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400 mb-8 flex items-center gap-2">
-              <ClipboardList size={18} className="text-indigo-600" /> Task
-              Fulfillment
-            </h3>
-            <div className="grid gap-4">
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 bg-black/60 z-40 lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
+        {/* Sidebar */}
+        <aside
+          className={`fixed left-0 top-0 h-full w-80 bg-white dark:bg-slate-900 shadow-2xl border-r border-slate-200 dark:border-slate-800 z-40 transform transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
+        >
+          <div className="p-8">
+            <div className="flex items-center gap-3 mb-12 pb-4 border-b border-slate-200 dark:border-slate-800">
+              <div className="bg-gradient-to-br from-amber-700 to-amber-900 p-2.5 rounded-xl shadow-lg">
+                <Scale size={24} className="text-white" />
+              </div>
+              <div>
+                <h1 className="font-black text-xl tracking-tight text-slate-900 dark:text-white">
+                  Leviathan
+                </h1>
+                <p className="text-[8px] font-bold text-amber-600 dark:text-amber-500 tracking-widest uppercase">
+                  Clerk Portal
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
               {[
-                { task: "Pay filing fees (Stanbic)", id: "001" },
-                { task: "Registry Verification: HCT-002", id: "002" },
+                {
+                  icon: ClipboardList,
+                  label: "Task Fulfillment",
+                  active: activeTab === "tasks",
+                  tab: "tasks",
+                },
+                {
+                  icon: FolderOpen,
+                  label: "Exhibit Vault",
+                  active: activeTab === "exhibits",
+                  tab: "exhibits",
+                },
+                {
+                  icon: FileCheck,
+                  label: "Registry Verification",
+                  active: activeTab === "registry",
+                  tab: "registry",
+                },
+                {
+                  icon: Navigation,
+                  label: "Service of Process",
+                  active: activeTab === "service",
+                  tab: "service",
+                },
               ].map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-center justify-between p-6 bg-slate-50 rounded-3xl border border-slate-200"
+                <button
+                  key={item.label}
+                  onClick={() => {
+                    setActiveTab(item.tab as any);
+                    setSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-4 px-5 py-3.5 rounded-xl transition-all duration-300 group ${
+                    item.active
+                      ? "bg-gradient-to-r from-amber-700 to-amber-800 text-white shadow-lg shadow-amber-700/20"
+                      : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+                  }`}
                 >
-                  <span className="font-black text-slate-800">{item.task}</span>
-                  <button className="flex items-center gap-2 px-6 py-2 bg-indigo-900 text-white rounded-xl text-[10px] font-black uppercase hover:bg-slate-900 transition-colors">
-                    <CheckCircle2 size={14} /> Close Task
-                  </button>
-                </div>
+                  <item.icon size={18} />
+                  <span className="font-semibold text-sm">{item.label}</span>
+                  {item.active && (
+                    <ChevronRight size={14} className="ml-auto" />
+                  )}
+                </button>
               ))}
             </div>
-          </div>
 
-          {/* EXHIBIT VAULT INGEST */}
-          <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm">
-            <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400 mb-8">
-              Exhibit Vault Ingest
-            </h3>
-            <motion.label
-              whileTap={{ scale: 0.98 }}
-              className="p-12 border-4 border-dashed border-slate-200 rounded-[2rem] flex flex-col items-center justify-center bg-indigo-50/30 group cursor-pointer transition-all hover:border-indigo-300"
-            >
-              <input
-                type="file"
-                className="hidden"
-                accept="image/*"
-                capture="environment"
-              />
-              <div className="p-6 bg-white rounded-3xl shadow-lg mb-4 group-hover:bg-indigo-900 group-hover:text-white transition-all">
-                <Camera size={40} />
-              </div>
-              <p className="font-black text-slate-800">
-                Scan & Upload Evidence
-              </p>
-              <p className="text-xs text-slate-500 mt-1 font-bold italic">
-                Integrity Shield automatically applied on upload
-              </p>
-            </motion.label>
-          </div>
-        </div>
-
-        <div className="lg:col-span-4 space-y-8">
-          {/* SERVICE OF PROCESS */}
-          <div className="bg-indigo-900 rounded-[3rem] p-8 text-white shadow-2xl sticky top-24">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-indigo-300 mb-6 text-center">
-              Field Logistics
-            </h3>
-            <div className="flex justify-center mb-6">
-              <div
-                className={`w-24 h-24 rounded-full flex items-center justify-center border border-white/20 transition-all ${serving ? "animate-spin border-t-emerald-400" : "animate-pulse bg-white/10"}`}
-              >
-                <MapPin
-                  size={40}
-                  className={serving ? "text-indigo-400" : "text-emerald-400"}
+            <div className="absolute bottom-8 left-8 right-8">
+              <div className="p-5 bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-950/30 dark:to-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                <Shield
+                  className="text-amber-700 dark:text-amber-500 mb-2"
+                  size={22}
                 />
+                <p className="text-[9px] font-black uppercase tracking-wider text-amber-800 dark:text-amber-400 mb-1">
+                  Registry Seal
+                </p>
+                <p className="text-[7px] text-amber-600 dark:text-amber-500 leading-relaxed">
+                  All actions logged and immutable.
+                </p>
+              </div>
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={toggleDarkMode}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-semibold"
+                >
+                  {darkMode ? <Sun size={14} /> : <Moon size={14} />}
+                  {darkMode ? "Light" : "Dark"}
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-xs font-semibold hover:bg-red-100 dark:hover:bg-red-900/30 transition-all"
+                >
+                  <LogOut size={14} /> Exit
+                </button>
               </div>
             </div>
-            <p className="text-2xl font-black text-center mb-6 leading-tight">
-              Service of <br /> Process (GPS)
-            </p>
-            <button
-              onClick={handleServiceOfProcess}
-              disabled={serving}
-              className="w-full py-5 bg-emerald-500 text-white rounded-[1.5rem] font-black text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-3 hover:bg-emerald-400 disabled:bg-slate-700 transition-all shadow-xl"
-            >
-              {serving ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <Navigation size={18} />
-              )}
-              {serving ? "Verifying GPS..." : "Mark as Served"}
-            </button>
           </div>
-        </div>
+        </aside>
+
+        {/* Main Content */}
+        <main className="lg:ml-80 p-6 lg:p-10">
+          {/* Header */}
+          <header className="mb-10">
+            <div className="flex justify-between items-start">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-px bg-amber-600" />
+                  <span className="text-[10px] font-black text-amber-600 dark:text-amber-500 tracking-[0.3em] uppercase">
+                    Registry Operations
+                  </span>
+                </div>
+                <h1 className="text-5xl lg:text-6xl font-black tracking-tight text-slate-900 dark:text-white">
+                  Clerk{" "}
+                  <span className="text-amber-700 dark:text-amber-500">
+                    Command
+                  </span>
+                </h1>
+              </div>
+
+              <div className="flex items-center gap-4">
+                {/* Notifications */}
+                <div className="relative">
+                  <button
+                    onClick={() => setShowNotifications(!showNotifications)}
+                    className="relative p-2.5 rounded-xl bg-white dark:bg-slate-800 shadow-md hover:shadow-lg transition-all border border-slate-200 dark:border-slate-700"
+                  >
+                    <Bell
+                      size={18}
+                      className="text-slate-600 dark:text-slate-400"
+                    />
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-[8px] font-black text-white">
+                        {unreadCount}
+                      </span>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </header>
+
+          {/* Error Banner */}
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 p-4 bg-red-50 dark:bg-red-950/30 rounded-xl border border-red-200 dark:border-red-800 flex items-center gap-3 text-red-700 dark:text-red-400 text-sm font-bold"
+            >
+              <AlertCircle size={18} /> {error}
+            </motion.div>
+          )}
+
+          {/* Active Tab Content */}
+          <AnimatePresence mode="wait">
+            {activeTab === "tasks" && (
+              <motion.div
+                key="tasks"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-6"
+              >
+                <div className="bg-white dark:bg-slate-900 rounded-2xl p-7 border border-slate-200 dark:border-slate-800 shadow-lg">
+                  <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-6 flex items-center gap-2">
+                    <ClipboardList size={14} /> Active Tasks
+                  </h3>
+                  {loadingTasks ? (
+                    <div className="flex justify-center py-12">
+                      <Loader2
+                        className="animate-spin text-amber-600"
+                        size={32}
+                      />
+                    </div>
+                  ) : tasks.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400">
+                      No pending tasks
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {tasks.map((task) => (
+                        <div
+                          key={task.id}
+                          className="flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-100 dark:border-slate-700"
+                        >
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              {getPriorityBadge(task.priority)}
+                              <span className="text-[10px] font-mono text-slate-500">
+                                {task.caseNumber}
+                              </span>
+                            </div>
+                            <p className="font-bold text-slate-800 dark:text-white">
+                              {task.title}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1">
+                              {task.description}
+                            </p>
+                            <p className="text-[9px] text-slate-400 mt-2">
+                              Assigned by: {task.assignedBy}
+                            </p>
+                          </div>
+                          {task.status !== "COMPLETED" && (
+                            <button
+                              onClick={() => handleTaskComplete(task.id)}
+                              className="ml-4 px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-emerald-700 transition-all flex items-center gap-2"
+                            >
+                              <CheckCircle2 size={14} /> Complete
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === "exhibits" && (
+              <motion.div
+                key="exhibits"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-6"
+              >
+                <div className="bg-gradient-to-r from-amber-800 to-amber-900 rounded-2xl p-7 text-white">
+                  <div className="flex items-center gap-3 mb-4">
+                    <Camera size={26} className="text-amber-300" />
+                    <h3 className="text-xl font-black">Exhibit Ingest</h3>
+                  </div>
+                  <p className="text-amber-100/80 text-sm mb-4">
+                    Upload physical evidence scans to case files.
+                  </p>
+                  <button
+                    onClick={() => setUploadModal(true)}
+                    className="px-6 py-3 bg-white text-amber-800 rounded-xl font-black text-xs uppercase hover:shadow-xl transition-all"
+                  >
+                    + Upload New Exhibit
+                  </button>
+                </div>
+
+                <div className="bg-white dark:bg-slate-900 rounded-2xl p-7 border border-slate-200 dark:border-slate-800 shadow-lg">
+                  <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-5">
+                    Recent Exhibits
+                  </h3>
+                  {loadingExhibits ? (
+                    <div className="flex justify-center py-12">
+                      <Loader2
+                        className="animate-spin text-amber-600"
+                        size={32}
+                      />
+                    </div>
+                  ) : exhibits.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400">
+                      <FileText size={40} className="mx-auto mb-3 opacity-30" />
+                      <p>No exhibits uploaded</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {exhibits.map((exhibit) => (
+                        <div
+                          key={exhibit.id}
+                          className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/30 rounded-xl"
+                        >
+                          <div>
+                            <p className="font-semibold">{exhibit.fileName}</p>
+                            <p className="text-[10px] text-slate-500">
+                              {exhibit.caseNumber} •{" "}
+                              {new Date(
+                                exhibit.uploadedAt,
+                              ).toLocaleDateString()}
+                            </p>
+                            {exhibit.sourceOrigin && (
+                              <p className="text-[9px] text-slate-400 mt-1">
+                                Source: {exhibit.sourceOrigin}
+                              </p>
+                            )}
+                          </div>
+                          <button className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all">
+                            <Download size={16} className="text-slate-500" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === "registry" && (
+              <motion.div
+                key="registry"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-6"
+              >
+                <div className="bg-white dark:bg-slate-900 rounded-2xl p-7 border border-slate-200 dark:border-slate-800 shadow-lg">
+                  <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-6 flex items-center gap-2">
+                    <FileCheck size={14} /> Registry Verification
+                  </h3>
+                  <div className="space-y-4">
+                    <select
+                      className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 focus:border-amber-500 outline-none transition-all"
+                      value={selectedCaseForRegistry?.id || ""}
+                      onChange={(e) => {
+                        const selected = cases.find(
+                          (c) => c.id === parseInt(e.target.value),
+                        );
+                        setSelectedCaseForRegistry(selected || null);
+                      }}
+                    >
+                      <option value="">Select Case</option>
+                      {cases.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.caseNumber} - {c.title}
+                        </option>
+                      ))}
+                    </select>
+
+                    <textarea
+                      placeholder="Verification notes (e.g., File submitted to Court 4, received by Clerk Akena)"
+                      className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 resize-none focus:border-amber-500 outline-none transition-all"
+                      rows={3}
+                      value={registryNote}
+                      onChange={(e) => setRegistryNote(e.target.value)}
+                    />
+
+                    <button
+                      onClick={handleRegistryVerification}
+                      disabled={!selectedCaseForRegistry || verifying}
+                      className="w-full py-4 bg-amber-700 text-white rounded-xl font-black text-xs uppercase hover:bg-amber-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {verifying ? (
+                        <Loader2 className="animate-spin mx-auto" size={20} />
+                      ) : (
+                        "Confirm Registry Action"
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === "service" && (
+              <motion.div
+                key="service"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-6"
+              >
+                <div className="bg-gradient-to-r from-amber-800 to-amber-900 rounded-2xl p-7 text-white">
+                  <div className="flex items-center gap-3 mb-4">
+                    <Navigation size={26} className="text-amber-300" />
+                    <h3 className="text-xl font-black">Service of Process</h3>
+                  </div>
+                  <p className="text-amber-100/80 text-sm mb-4">
+                    Record GPS-verified summons delivery.
+                  </p>
+                </div>
+
+                <div className="bg-white dark:bg-slate-900 rounded-2xl p-7 border border-slate-200 dark:border-slate-800 shadow-lg">
+                  {serviceError && (
+                    <div className="mb-4 p-3 bg-red-50 dark:bg-red-950/30 rounded-xl text-red-700 dark:text-red-400 text-xs flex items-center gap-2">
+                      <AlertCircle size={14} /> {serviceError}
+                    </div>
+                  )}
+
+                  <div className="space-y-4">
+                    <select
+                      className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 focus:border-amber-500 outline-none transition-all"
+                      value={selectedCaseForService?.id || ""}
+                      onChange={(e) => {
+                        const selected = cases.find(
+                          (c) => c.id === parseInt(e.target.value),
+                        );
+                        setSelectedCaseForService(selected || null);
+                        setServiceError(null);
+                      }}
+                    >
+                      <option value="">Select Case for Service</option>
+                      {cases.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.caseNumber} - {c.title}
+                        </option>
+                      ))}
+                    </select>
+
+                    {gpsLocation && (
+                      <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl text-emerald-700 dark:text-emerald-400 text-xs">
+                        📍 GPS captured: {gpsLocation.lat.toFixed(6)},{" "}
+                        {gpsLocation.lng.toFixed(6)}
+                      </div>
+                    )}
+
+                    <button
+                      onClick={handleServiceOfProcess}
+                      disabled={!selectedCaseForService || serving}
+                      className="w-full py-5 bg-emerald-600 text-white rounded-xl font-black text-xs uppercase hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {serving ? (
+                        <Loader2 className="animate-spin" size={18} />
+                      ) : (
+                        <Navigation size={18} />
+                      )}
+                      {serving
+                        ? "Capturing GPS..."
+                        : "Record Service of Process"}
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </main>
       </div>
+
+      {/* Upload Modal */}
+      <AnimatePresence>
+        {uploadModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+            <div
+              className="absolute inset-0 bg-black/70 backdrop-blur-md"
+              onClick={() => setUploadModal(false)}
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden"
+            >
+              <div className="bg-gradient-to-r from-amber-700 to-amber-800 p-6 text-white">
+                <h3 className="text-xl font-black">Upload Exhibit</h3>
+                <p className="text-white/70 text-sm">
+                  Scan and upload physical evidence
+                </p>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <select
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 focus:border-amber-500 outline-none transition-all"
+                  value={selectedCaseId || ""}
+                  onChange={(e) => setSelectedCaseId(parseInt(e.target.value))}
+                >
+                  <option value="">Select Case</option>
+                  {cases.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.caseNumber}
+                    </option>
+                  ))}
+                </select>
+
+                <div
+                  onClick={() => document.getElementById("fileInput")?.click()}
+                  className="border-2 border-dashed border-slate-300 dark:border-slate-600 p-8 text-center cursor-pointer hover:border-amber-500 rounded-xl transition-all"
+                >
+                  {selectedFile ? (
+                    <>
+                      <FileText
+                        className="mx-auto mb-2 text-amber-600"
+                        size={32}
+                      />
+                      <p className="text-sm font-medium">{selectedFile.name}</p>
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        {(selectedFile.size / 1024).toFixed(2)} KB
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <Camera
+                        className="mx-auto mb-2 text-slate-400"
+                        size={32}
+                      />
+                      <p className="text-sm font-medium">
+                        Click to scan/upload
+                      </p>
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        PDF, Images (Max 25MB)
+                      </p>
+                    </>
+                  )}
+                  <input
+                    id="fileInput"
+                    type="file"
+                    className="hidden"
+                    accept="image/*,.pdf"
+                    onChange={(e) =>
+                      setSelectedFile(e.target.files?.[0] || null)
+                    }
+                  />
+                </div>
+
+                <textarea
+                  placeholder="Source/Origin (e.g., Received from court clerk)"
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 resize-none focus:border-amber-500 outline-none transition-all"
+                  rows={2}
+                  value={uploadSource}
+                  onChange={(e) => setUploadSource(e.target.value)}
+                />
+
+                <button
+                  onClick={handleUploadExhibit}
+                  disabled={
+                    !selectedFile ||
+                    !uploadSource ||
+                    !selectedCaseId ||
+                    uploading
+                  }
+                  className="w-full py-3 bg-amber-700 text-white rounded-xl font-black text-xs uppercase hover:bg-amber-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {uploading ? (
+                    <Loader2 className="animate-spin mx-auto" size={20} />
+                  ) : (
+                    "Upload to Vault"
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
