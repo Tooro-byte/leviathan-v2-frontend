@@ -37,6 +37,9 @@ import {
   Shield as ShieldIcon,
   FileText as FileTextIcon,
   FolderOpen as FolderOpenIcon,
+  QrCode,
+  Verified,
+  Stamp,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -58,7 +61,7 @@ interface CaseData {
   caseStage?: number;
 }
 
-interface UploadedFile {
+interface Document {
   id: number;
   fileName: string;
   fileType: string;
@@ -67,6 +70,14 @@ interface UploadedFile {
   sourceOrigin: string;
   uploadedBy: string;
   fileHash?: string;
+  documentCategory?: string;
+  documentType?: string;
+  certified?: boolean;
+  certifiedAt?: string;
+  certifiedBy?: string;
+  verificationUrl?: string;
+  verificationCode?: string;
+  displayDocumentType?: string;
 }
 
 interface Notification {
@@ -82,7 +93,7 @@ function ClientDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [documents, setDocuments] = useState<Document[]>([]);
   const [activeTab, setActiveTab] = useState<
     "overview" | "evidence" | "payments" | "messages"
   >("overview");
@@ -92,6 +103,11 @@ function ClientDashboard() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [downloading, setDownloading] = useState<number | null>(null);
+  const [qrModal, setQrModal] = useState<{ show: boolean; url: string; code: string }>({
+    show: false,
+    url: "",
+    code: "",
+  });
 
   useEffect(() => {
     setMounted(true);
@@ -100,7 +116,7 @@ function ClientDashboard() {
 
   useEffect(() => {
     if (caseData?.id) {
-      fetchUploadedFiles();
+      fetchDocuments();
     }
   }, [caseData?.id]);
 
@@ -145,7 +161,7 @@ function ClientDashboard() {
 
   const markNotificationAsRead = (id: number) => {
     setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
+      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
     );
     setUnreadCount((prev) => Math.max(0, prev - 1));
   };
@@ -167,21 +183,22 @@ function ClientDashboard() {
     }
   };
 
-  const fetchUploadedFiles = async () => {
+  const fetchDocuments = async () => {
     if (!caseData?.id) return;
     try {
-      const response = await api.get(`/api/documents/case/${caseData.id}`);
-      setUploadedFiles(response.data || []);
+      const response = await api.get(`/api/generate/case/${caseData.id}`);
+      setDocuments(response.data || []);
+      console.log("Fetched documents:", response.data);
     } catch (err) {
-      console.error("Failed to fetch uploaded files:", err);
-      setUploadedFiles([]);
+      console.error("Failed to fetch documents:", err);
+      setDocuments([]);
     }
   };
 
   const handleDownloadFile = async (fileId: number, fileName: string) => {
     setDownloading(fileId);
     try {
-      const response = await api.get(`/api/documents/download/${fileId}`, {
+      const response = await api.get(`/api/generate/download/${fileId}`, {
         responseType: "blob",
       });
 
@@ -201,12 +218,9 @@ function ClientDashboard() {
     }
   };
 
-  const handleViewFile = async (
-    fileId: number,
-    fileName: string = "document",
-  ) => {
+  const handleViewFile = async (fileId: number, fileName: string = "document") => {
     try {
-      const response = await api.get(`/api/documents/download/${fileId}`, {
+      const response = await api.get(`/api/generate/download/${fileId}`, {
         responseType: "blob",
       });
 
@@ -251,6 +265,10 @@ function ClientDashboard() {
     }
   };
 
+  const openQrModal = (url: string, code: string) => {
+    setQrModal({ show: true, url, code });
+  };
+
   const getStageIndex = (status: string = "", caseStage: number = 0) => {
     if (caseStage !== undefined && caseStage !== null && caseStage >= 0) {
       return caseStage;
@@ -285,8 +303,7 @@ function ClientDashboard() {
     : null;
   const daysUntilNextDate = nextCourtDate
     ? Math.ceil(
-        (nextCourtDate.getTime() - new Date().getTime()) /
-          (1000 * 60 * 60 * 24),
+        (nextCourtDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
       )
     : null;
   const formattedNextHearingDate = nextCourtDate
@@ -298,15 +315,23 @@ function ClientDashboard() {
       })
     : null;
 
-  const getUploaderLabel = (file: UploadedFile) => {
-    if (
-      file.uploadedBy?.toLowerCase().includes("lawyer") ||
-      file.uploadedBy === "Principal Lawyer"
-    ) {
-      return { text: "Counsel", color: "text-purple-600", icon: "⚖️" };
+  const getDocumentBadge = (doc: Document) => {
+    if (doc.documentCategory === "LEGAL_DOCUMENT" && doc.certified) {
+      return { text: "CERTIFIED", color: "bg-emerald-100 text-emerald-700", icon: <Verified size={10} className="mr-1" /> };
     }
-    return { text: "Registry", color: "text-amber-600", icon: "📋" };
+    if (doc.documentCategory === "LEGAL_DOCUMENT") {
+      return { text: "DRAFT", color: "bg-amber-100 text-amber-700", icon: null };
+    }
+    return { text: "EVIDENCE", color: "bg-slate-100 text-slate-600", icon: null };
   };
+
+  const legalDocuments = useMemo(() => {
+    return documents.filter(doc => doc.documentCategory === "LEGAL_DOCUMENT");
+  }, [documents]);
+
+  const evidenceDocuments = useMemo(() => {
+    return documents.filter(doc => doc.documentCategory === "EVIDENCE");
+  }, [documents]);
 
   if (!mounted || isLoading) {
     return (
@@ -351,9 +376,7 @@ function ClientDashboard() {
   }
 
   return (
-    <div
-      className={`min-h-screen transition-all duration-500 ${darkMode ? "dark" : ""}`}
-    >
+    <div className={`min-h-screen transition-all duration-500 ${darkMode ? "dark" : ""}`}>
       <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
         {/* Mobile Menu Button */}
         <button
@@ -391,30 +414,10 @@ function ClientDashboard() {
 
             <div className="space-y-2">
               {[
-                {
-                  icon: Home,
-                  label: "Registry",
-                  active: activeTab === "overview",
-                  tab: "overview",
-                },
-                {
-                  icon: FolderOpen,
-                  label: "Evidence Vault",
-                  active: activeTab === "evidence",
-                  tab: "evidence",
-                },
-                {
-                  icon: DollarSign,
-                  label: "Treasury",
-                  active: activeTab === "payments",
-                  tab: "payments",
-                },
-                {
-                  icon: MessageSquare,
-                  label: "Correspondence",
-                  active: activeTab === "messages",
-                  tab: "messages",
-                },
+                { icon: Home, label: "Registry", active: activeTab === "overview", tab: "overview" },
+                { icon: FolderOpen, label: "Case Files", active: activeTab === "evidence", tab: "evidence" },
+                { icon: DollarSign, label: "Treasury", active: activeTab === "payments", tab: "payments" },
+                { icon: MessageSquare, label: "Correspondence", active: activeTab === "messages", tab: "messages" },
               ].map((item) => (
                 <button
                   key={item.label}
@@ -430,19 +433,14 @@ function ClientDashboard() {
                 >
                   <item.icon size={18} />
                   <span className="font-semibold text-sm">{item.label}</span>
-                  {item.active && (
-                    <ChevronRight size={14} className="ml-auto" />
-                  )}
+                  {item.active && <ChevronRight size={14} className="ml-auto" />}
                 </button>
               ))}
             </div>
 
             <div className="absolute bottom-8 left-8 right-8">
               <div className="p-5 bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-950/30 dark:to-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
-                <Shield
-                  className="text-amber-700 dark:text-amber-500 mb-2"
-                  size={22}
-                />
+                <Shield className="text-amber-700 dark:text-amber-500 mb-2" size={22} />
                 <p className="text-[9px] font-black uppercase tracking-wider text-amber-800 dark:text-amber-400 mb-1">
                   Seal of Integrity
                 </p>
@@ -502,10 +500,7 @@ function ClientDashboard() {
                     onClick={() => setShowNotifications(!showNotifications)}
                     className="relative p-2.5 rounded-xl bg-white dark:bg-slate-800 shadow-md hover:shadow-lg transition-all border border-slate-200 dark:border-slate-700"
                   >
-                    <Bell
-                      size={18}
-                      className="text-slate-600 dark:text-slate-400"
-                    />
+                    <Bell size={18} className="text-slate-600 dark:text-slate-400" />
                     {unreadCount > 0 && (
                       <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-[8px] font-black text-white">
                         {unreadCount}
@@ -589,14 +584,12 @@ function ClientDashboard() {
                 transition={{ duration: 0.3 }}
                 className="space-y-8"
               >
-                {/* Stats Grid - Beautiful Legal Theme Cards */}
+                {/* Stats Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   <JudicialStatCard
                     icon={Calendar}
                     label="Next Hearing"
-                    value={
-                      daysUntilNextDate !== null ? daysUntilNextDate : "TBD"
-                    }
+                    value={daysUntilNextDate !== null ? daysUntilNextDate : "TBD"}
                     suffix={daysUntilNextDate !== null ? " days" : ""}
                     color="amber"
                     trend="Scheduled"
@@ -604,7 +597,7 @@ function ClientDashboard() {
                   <JudicialStatCard
                     icon={FileCheck}
                     label="Case Status"
-                    value="Registry Verified"
+                    value={caseData.status}
                     color="emerald"
                     trend={`Stage ${currentStage + 1}/4`}
                   />
@@ -622,7 +615,7 @@ function ClientDashboard() {
                   <JudicialStatCard
                     icon={Scale}
                     label="Lead Counsel"
-                    value="Principal Lawyer"
+                    value={caseData.primaryCounsel || "Assigned"}
                     color="purple"
                     trend="Active"
                   />
@@ -632,54 +625,47 @@ function ClientDashboard() {
                 <section className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
                   <div className="flex items-center justify-between mb-8">
                     <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-2">
-                      <TrendingUp size={14} className="text-amber-600" /> Court
-                      Progression
+                      <TrendingUp size={14} className="text-amber-600" /> Court Progression
                     </h3>
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                      <span className="text-[8px] font-mono text-slate-400">
-                        Integrity Verified
-                      </span>
+                      <span className="text-[8px] font-mono text-slate-400">Integrity Verified</span>
                     </div>
                   </div>
                   <div className="relative">
                     <div className="absolute top-6 left-0 right-0 h-0.5 bg-slate-200 dark:bg-slate-700" />
                     <div className="relative flex justify-between">
-                      {["Petition", "Discovery", "Trial", "Judgment"].map(
-                        (stage, i) => (
+                      {["Petition", "Discovery", "Trial", "Judgment"].map((stage, i) => (
+                        <div key={stage} className="flex flex-col items-center">
                           <div
-                            key={stage}
-                            className="flex flex-col items-center"
+                            className={`relative z-10 w-12 h-12 rounded-full flex items-center justify-center transition-all duration-500 border-2 ${
+                              i <= currentStage
+                                ? "bg-amber-700 border-amber-700 text-white shadow-lg shadow-amber-700/20"
+                                : "bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-400"
+                            }`}
                           >
-                            <div
-                              className={`relative z-10 w-12 h-12 rounded-full flex items-center justify-center transition-all duration-500 border-2 ${i <= currentStage ? "bg-amber-700 border-amber-700 text-white shadow-lg shadow-amber-700/20" : "bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-400"}`}
-                            >
-                              {i < currentStage ? (
-                                <CheckCircle2 size={18} />
-                              ) : (
-                                <span className="text-sm font-bold">
-                                  {i + 1}
-                                </span>
-                              )}
-                            </div>
-                            <span
-                              className={`mt-3 text-[9px] font-bold uppercase tracking-wider ${i === currentStage ? "text-amber-700 dark:text-amber-500" : "text-slate-400"}`}
-                            >
-                              {stage}
-                            </span>
+                            {i < currentStage ? (
+                              <CheckCircle2 size={18} />
+                            ) : (
+                              <span className="text-sm font-bold">{i + 1}</span>
+                            )}
                           </div>
-                        ),
-                      )}
+                          <span
+                            className={`mt-3 text-[9px] font-bold uppercase tracking-wider ${
+                              i === currentStage ? "text-amber-700 dark:text-amber-500" : "text-slate-400"
+                            }`}
+                          >
+                            {stage}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </div>
 
                   {nextCourtDate ? (
                     <div className="mt-8 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-xl border-l-4 border-amber-600">
                       <div className="flex items-start gap-3">
-                        <CalendarDays
-                          size={16}
-                          className="text-amber-600 mt-0.5"
-                        />
+                        <CalendarDays size={16} className="text-amber-600 mt-0.5" />
                         <div>
                           <p className="text-[9px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-wider">
                             Next Appearance
@@ -690,9 +676,7 @@ function ClientDashboard() {
                           <p className="text-[9px] text-amber-600 dark:text-amber-500 mt-1 font-medium">
                             {daysUntilNextDate === 0 && "Today"}
                             {daysUntilNextDate === 1 && "Tomorrow"}
-                            {daysUntilNextDate &&
-                              daysUntilNextDate > 1 &&
-                              `${daysUntilNextDate} days remaining`}
+                            {daysUntilNextDate && daysUntilNextDate > 1 && `${daysUntilNextDate} days remaining`}
                           </p>
                         </div>
                       </div>
@@ -700,10 +684,7 @@ function ClientDashboard() {
                   ) : (
                     <div className="mt-8 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
                       <div className="flex items-start gap-3">
-                        <CalendarDays
-                          size={16}
-                          className="text-slate-400 mt-0.5"
-                        />
+                        <CalendarDays size={16} className="text-slate-400 mt-0.5" />
                         <div>
                           <p className="text-[9px] font-black text-slate-500 uppercase tracking-wider">
                             Next Hearing
@@ -785,7 +766,7 @@ function ClientDashboard() {
               </motion.div>
             )}
 
-            {/* Evidence Vault */}
+            {/* Case Files - Shows BOTH Legal Documents and Evidence */}
             {activeTab === "evidence" && (
               <motion.div
                 key="evidence"
@@ -795,14 +776,14 @@ function ClientDashboard() {
                 transition={{ duration: 0.3 }}
                 className="space-y-6"
               >
+                {/* Header */}
                 <section className="bg-gradient-to-r from-amber-800 to-amber-900 rounded-3xl p-8 text-white">
                   <div className="flex items-center gap-3 mb-4">
                     <FolderOpen size={26} className="text-amber-300" />
-                    <h3 className="text-xl font-black">Evidence Registry</h3>
+                    <h3 className="text-xl font-black">Case Files Registry</h3>
                   </div>
                   <p className="text-amber-100/80 text-sm mb-3 max-w-md">
-                    All exhibits and case documents submitted to the court
-                    registry.
+                    Official court documents and evidence submitted to the registry.
                   </p>
                   <div className="flex items-center gap-3 text-amber-300/60 text-[10px]">
                     <Lock size={10} />
@@ -810,21 +791,104 @@ function ClientDashboard() {
                   </div>
                 </section>
 
-                <section className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
-                  <div className="flex items-center justify-between mb-5">
-                    <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-2">
-                      <FileTextIcon size={12} /> Exhibits (
-                      {uploadedFiles.length})
-                    </h3>
-                    <div className="text-[8px] font-mono text-slate-400">
-                      Last updated: {new Date().toLocaleDateString()}
+                {/* Legal Documents Section (Certified) */}
+                {legalDocuments.length > 0 && (
+                  <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
+                    <div className="flex items-center gap-2 mb-5 pb-2 border-b border-slate-200 dark:border-slate-700">
+                      <Stamp size={16} className="text-emerald-600" />
+                      <h3 className="text-[11px] font-black uppercase tracking-wider text-emerald-600">
+                        Certified Legal Documents
+                      </h3>
+                      <span className="text-[8px] font-mono text-slate-400 ml-auto">
+                        {legalDocuments.length} document(s)
+                      </span>
+                    </div>
+                    <div className="space-y-3">
+                      {legalDocuments.map((doc, index) => {
+                        const badge = getDocumentBadge(doc);
+                        return (
+                          <motion.div
+                            key={doc.id}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: index * 0.05 }}
+                            className="flex items-center justify-between p-4 bg-emerald-50/30 dark:bg-emerald-950/20 rounded-xl border border-emerald-200 dark:border-emerald-800 hover:border-emerald-400 transition-all group"
+                          >
+                            <div className="flex items-center gap-4 flex-1">
+                              <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg flex items-center justify-center">
+                                <FileText size={18} className="text-emerald-700" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                  <p className="font-semibold text-sm text-slate-800 dark:text-slate-200">
+                                    {doc.displayDocumentType || doc.documentType?.replace(/_/g, " ")}
+                                  </p>
+                                  <span className={`text-[7px] font-black px-1.5 py-0.5 rounded-full ${badge.color} flex items-center`}>
+                                    {badge.icon}{badge.text}
+                                  </span>
+                                  {doc.certified && doc.verificationCode && (
+                                    <button
+                                      onClick={() => openQrModal(doc.verificationUrl || "", doc.verificationCode || "")}
+                                      className="text-[7px] font-black px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 flex items-center gap-1 hover:bg-blue-200 transition-all"
+                                    >
+                                      <QrCode size={8} /> Verify
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-3 text-[9px] text-slate-500 flex-wrap">
+                                  <span>📅 {new Date(doc.uploadedAt).toLocaleDateString()}</span>
+                                  <span>📄 {(doc.fileSize / 1024).toFixed(1)} KB</span>
+                                  {doc.certified && doc.certifiedBy && (
+                                    <span className="text-emerald-600">✓ Certified by: {doc.certifiedBy}</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleViewFile(doc.id, doc.fileName)}
+                                className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all"
+                                title="View Document"
+                              >
+                                <Eye size={15} className="text-slate-500 hover:text-amber-600" />
+                              </button>
+                              <button
+                                onClick={() => handleDownloadFile(doc.id, doc.fileName)}
+                                disabled={downloading === doc.id}
+                                className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all flex items-center gap-1"
+                                title="Download"
+                              >
+                                {downloading === doc.id ? (
+                                  <Loader2 size={14} className="animate-spin text-amber-600" />
+                                ) : (
+                                  <Download size={15} className="text-slate-500 hover:text-amber-600" />
+                                )}
+                              </button>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
                     </div>
                   </div>
+                )}
 
-                  {uploadedFiles.length > 0 ? (
-                    <div className="space-y-2.5">
-                      {uploadedFiles.map((file, index) => {
-                        const uploader = getUploaderLabel(file);
+                {/* Evidence Documents Section */}
+                {evidenceDocuments.length > 0 && (
+                  <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
+                    <div className="flex items-center gap-2 mb-5 pb-2 border-b border-slate-200 dark:border-slate-700">
+                      <FileText size={14} className="text-amber-600" />
+                      <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                        Evidence & Exhibits
+                      </h3>
+                      <span className="text-[8px] font-mono text-slate-400 ml-auto">
+                        {evidenceDocuments.length} item(s)
+                      </span>
+                    </div>
+                    <div className="space-y-3">
+                      {evidenceDocuments.map((file, index) => {
+                        const uploader = file.uploadedBy?.toLowerCase().includes("lawyer") || file.uploadedBy === "Principal Lawyer"
+                          ? { text: "Counsel", color: "text-purple-600", icon: "⚖️" }
+                          : { text: "Registry", color: "text-amber-600", icon: "📋" };
                         return (
                           <motion.div
                             key={file.id}
@@ -835,34 +899,21 @@ function ClientDashboard() {
                           >
                             <div className="flex items-center gap-4 flex-1">
                               <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-lg flex items-center justify-center">
-                                <FileText
-                                  size={18}
-                                  className="text-amber-700"
-                                />
+                                <FileText size={18} className="text-amber-700" />
                               </div>
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-0.5">
                                   <p className="font-semibold text-sm text-slate-800 dark:text-slate-200">
                                     {file.fileName}
                                   </p>
-                                  <span
-                                    className={`text-[7px] font-black px-1.5 py-0.5 rounded-full ${uploader.color} bg-opacity-10`}
-                                  >
+                                  <span className={`text-[7px] font-black px-1.5 py-0.5 rounded-full ${uploader.color} bg-opacity-10`}>
                                     {uploader.icon} {uploader.text}
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-3 text-[9px] text-slate-500">
-                                  <span>
-                                    {new Date(
-                                      file.uploadedAt,
-                                    ).toLocaleDateString()}
-                                  </span>
-                                  <span>
-                                    {(file.fileSize / 1024).toFixed(1)} KB
-                                  </span>
-                                  {file.sourceOrigin && (
-                                    <span>Source: {file.sourceOrigin}</span>
-                                  )}
+                                  <span>📅 {new Date(file.uploadedAt).toLocaleDateString()}</span>
+                                  <span>📄 {(file.fileSize / 1024).toFixed(1)} KB</span>
+                                  {file.sourceOrigin && <span>📍 Source: {file.sourceOrigin}</span>}
                                 </div>
                                 {file.fileHash && (
                                   <p className="text-[7px] font-mono text-slate-400 mt-1 truncate">
@@ -873,35 +924,22 @@ function ClientDashboard() {
                             </div>
                             <div className="flex items-center gap-2">
                               <button
-                                onClick={() =>
-                                  handleViewFile(file.id, file.fileName)
-                                }
+                                onClick={() => handleViewFile(file.id, file.fileName)}
                                 className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all"
                                 title="View Exhibit"
                               >
-                                <Eye
-                                  size={16}
-                                  className="text-slate-500 hover:text-amber-600"
-                                />
+                                <Eye size={15} className="text-slate-500 hover:text-amber-600" />
                               </button>
                               <button
-                                onClick={() =>
-                                  handleDownloadFile(file.id, file.fileName)
-                                }
+                                onClick={() => handleDownloadFile(file.id, file.fileName)}
                                 disabled={downloading === file.id}
                                 className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all flex items-center gap-1"
                                 title="Download"
                               >
                                 {downloading === file.id ? (
-                                  <Loader2
-                                    size={14}
-                                    className="animate-spin text-amber-600"
-                                  />
+                                  <Loader2 size={14} className="animate-spin text-amber-600" />
                                 ) : (
-                                  <Download
-                                    size={16}
-                                    className="text-slate-500 hover:text-amber-600"
-                                  />
+                                  <Download size={15} className="text-slate-500 hover:text-amber-600" />
                                 )}
                               </button>
                             </div>
@@ -909,19 +947,17 @@ function ClientDashboard() {
                         );
                       })}
                     </div>
-                  ) : (
-                    <div className="text-center py-12 text-slate-400">
-                      <FileText size={40} className="mx-auto mb-3 opacity-30" />
-                      <p className="text-sm font-medium">
-                        No exhibits on record
-                      </p>
-                      <p className="text-[10px] mt-1">
-                        Counsel will upload case documents as they become
-                        available.
-                      </p>
-                    </div>
-                  )}
-                </section>
+                  </div>
+                )}
+
+                {/* Empty State */}
+                {legalDocuments.length === 0 && evidenceDocuments.length === 0 && (
+                  <div className="bg-white dark:bg-slate-900 rounded-3xl p-12 text-center border border-slate-200 dark:border-slate-800 shadow-xl">
+                    <FileText size={48} className="mx-auto mb-4 text-slate-300 dark:text-slate-600" />
+                    <p className="text-sm font-medium text-slate-500">No case files available</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Documents will appear here when filed by counsel.</p>
+                  </div>
+                )}
               </motion.div>
             )}
 
@@ -935,9 +971,7 @@ function ClientDashboard() {
                 className="space-y-6"
               >
                 <section className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-3xl p-8 text-white">
-                  <p className="text-slate-300 text-sm mb-1">
-                    Court Fees & Costs
-                  </p>
+                  <p className="text-slate-300 text-sm mb-1">Court Fees & Costs</p>
                   <p className="text-4xl font-bold mb-1">
                     {new Intl.NumberFormat("en-UG", {
                       style: "currency",
@@ -955,31 +989,16 @@ function ClientDashboard() {
                     <div className="p-4 bg-slate-50 dark:bg-slate-800/30 rounded-xl">
                       <p className="text-sm font-semibold mb-2">Bank Details</p>
                       <div className="space-y-1.5 text-xs">
-                        <p>
-                          <span className="text-slate-500">Bank:</span> Stanbic
-                          Bank Uganda
-                        </p>
-                        <p>
-                          <span className="text-slate-500">Account:</span>{" "}
-                          LexTracker Uganda
-                        </p>
-                        <p>
-                          <span className="text-slate-500">Number:</span>{" "}
-                          9030012345678
-                        </p>
-                        <p>
-                          <span className="text-slate-500">Reference:</span>{" "}
-                          {caseData.caseNumber}
-                        </p>
+                        <p><span className="text-slate-500">Bank:</span> Stanbic Bank Uganda</p>
+                        <p><span className="text-slate-500">Account:</span> LexTracker Uganda</p>
+                        <p><span className="text-slate-500">Number:</span> 9030012345678</p>
+                        <p><span className="text-slate-500">Reference:</span> {caseData.caseNumber}</p>
                       </div>
                     </div>
                     <div className="p-3 bg-amber-50 dark:bg-amber-950/20 rounded-xl border-l-2 border-amber-500">
-                      <p className="text-[9px] font-black text-amber-700 uppercase">
-                        Important
-                      </p>
+                      <p className="text-[9px] font-black text-amber-700 uppercase">Important</p>
                       <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                        Quote your Case Number for all payments. Allow 2-3
-                        business days for confirmation.
+                        Quote your Case Number for all payments. Allow 2-3 business days for confirmation.
                       </p>
                     </div>
                   </div>
@@ -996,16 +1015,12 @@ function ClientDashboard() {
                 transition={{ duration: 0.3 }}
                 className="bg-white dark:bg-slate-900 rounded-3xl p-12 border border-slate-200 dark:border-slate-800 shadow-xl text-center"
               >
-                <MessageSquare
-                  size={48}
-                  className="mx-auto mb-4 text-slate-300 dark:text-slate-600"
-                />
+                <MessageSquare size={48} className="mx-auto mb-4 text-slate-300 dark:text-slate-600" />
                 <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300 mb-2">
                   Secure Correspondence
                 </h3>
                 <p className="text-sm text-slate-500 max-w-sm mx-auto">
-                  Direct messaging with counsel will be available in the next
-                  update.
+                  Direct messaging with counsel will be available in the next update.
                 </p>
               </motion.div>
             )}
@@ -1013,30 +1028,55 @@ function ClientDashboard() {
         </main>
       </div>
 
+      {/* QR Code Modal */}
+      <AnimatePresence>
+        {qrModal.show && (
+          <div className="fixed inset-0 z-[500] flex items-center justify-center p-6">
+            <div
+              className="absolute inset-0 bg-black/70 backdrop-blur-md"
+              onClick={() => setQrModal({ show: false, url: "", code: "" })}
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden text-center p-8"
+            >
+              <div className="mb-4">
+                <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Verified size={32} className="text-emerald-600" />
+                </div>
+                <h3 className="text-xl font-black mb-2">Document Verified</h3>
+                <p className="text-sm text-slate-500">This document is authentic and certified by LexTracker.</p>
+              </div>
+              <div className="bg-slate-100 dark:bg-slate-800 rounded-xl p-4 mb-4">
+                <p className="text-[10px] font-mono break-all text-slate-600 dark:text-slate-400">
+                  Verification Code: <span className="font-bold text-amber-600">{qrModal.code}</span>
+                </p>
+              </div>
+              <button
+                onClick={() => setQrModal({ show: false, url: "", code: "" })}
+                className="w-full py-3 bg-amber-700 text-white rounded-xl font-black text-xs uppercase hover:bg-amber-800 transition-all"
+              >
+                Close
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <style jsx global>{`
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 3px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: #f1f1f1;
-          border-radius: 10px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #d4a373;
-          border-radius: 10px;
-        }
-        .dark .custom-scrollbar::-webkit-scrollbar-track {
-          background: #1e293b;
-        }
-        .dark .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #b45309;
-        }
+        .custom-scrollbar::-webkit-scrollbar { width: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #d4a373; border-radius: 10px; }
+        .dark .custom-scrollbar::-webkit-scrollbar-track { background: #1e293b; }
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #b45309; }
       `}</style>
     </div>
   );
 }
 
-// Updated Judicial Stat Card - Beautiful Legal Theme with Teal Accent
+// Judicial Stat Card Component
 function JudicialStatCard({
   icon: Icon,
   label,
@@ -1053,14 +1093,14 @@ function JudicialStatCard({
   trend: string;
 }) {
   const colors = {
-    amber: "from-teal-700 to-teal-800 border-teal-700",
+    amber: "from-amber-700 to-amber-800 border-amber-700",
     emerald: "from-emerald-700 to-emerald-800 border-emerald-700",
     slate: "from-slate-700 to-slate-800 border-slate-700",
     purple: "from-purple-700 to-purple-800 border-purple-700",
   };
 
   const textColors = {
-    amber: "text-teal-700 dark:text-teal-400",
+    amber: "text-amber-700 dark:text-amber-400",
     emerald: "text-emerald-700 dark:text-emerald-400",
     slate: "text-slate-700 dark:text-slate-400",
     purple: "text-purple-700 dark:text-purple-400",
@@ -1068,33 +1108,21 @@ function JudicialStatCard({
 
   return (
     <div className="group relative overflow-hidden bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1">
-      {/* Subtle Teal Legal Background Accent */}
-      <div className="absolute inset-0 bg-gradient-to-br from-teal-50/40 to-transparent dark:from-teal-950/30 opacity-60 group-hover:opacity-80 transition-opacity" />
-
+      <div className="absolute inset-0 bg-gradient-to-br from-amber-50/40 to-transparent dark:from-amber-950/30 opacity-60 group-hover:opacity-80 transition-opacity" />
       <div className="flex items-center justify-between mb-4 relative z-10">
-        <div
-          className={`w-12 h-12 bg-gradient-to-br ${colors[color]} rounded-2xl flex items-center justify-center text-white shadow-lg ring-1 ring-white/20`}
-        >
+        <div className={`w-12 h-12 bg-gradient-to-br ${colors[color]} rounded-2xl flex items-center justify-center text-white shadow-lg ring-1 ring-white/20`}>
           <Icon size={20} />
         </div>
         <span className="text-[10px] font-semibold px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
           {trend}
         </span>
       </div>
-
-      <p
-        className={`text-[10px] font-bold uppercase tracking-[0.08em] mb-1.5 ${textColors[color]}`}
-      >
+      <p className={`text-[10px] font-bold uppercase tracking-[0.08em] mb-1.5 ${textColors[color]}`}>
         {label}
       </p>
-
       <p className="text-2xl font-black text-slate-900 dark:text-white tracking-tight leading-none">
         {value}
-        {suffix && (
-          <span className="text-base font-medium text-slate-400 ml-1">
-            {suffix}
-          </span>
-        )}
+        {suffix && <span className="text-base font-medium text-slate-400 ml-1">{suffix}</span>}
       </p>
     </div>
   );

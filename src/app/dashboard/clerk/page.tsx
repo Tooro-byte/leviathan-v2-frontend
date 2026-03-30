@@ -54,6 +54,8 @@ import {
   Search,
   Filter,
   RefreshCw,
+  Stamp,
+  File,
 } from "lucide-react";
 
 interface Task {
@@ -88,6 +90,19 @@ interface Exhibit {
   caseNumber: string;
   uploadedBy: string;
   fileHash?: string;
+}
+
+interface GeneratedDocument {
+  id: number;
+  fileName: string;
+  documentType: string;
+  documentCategory: string;
+  certified: boolean;
+  certifiedAt?: string;
+  certifiedBy?: string;
+  fileHash: string;
+  uploadedAt: string;
+  displayDocumentType?: string;
 }
 
 function ClerkDashboard() {
@@ -125,6 +140,13 @@ function ClerkDashboard() {
   const [selectedCaseForService, setSelectedCaseForService] =
     useState<Case | null>(null);
   const [serviceError, setServiceError] = useState<string | null>(null);
+
+  // Document Generation State
+  const [generating, setGenerating] = useState<string | null>(null);
+  const [documentsModal, setDocumentsModal] = useState(false);
+  const [selectedCaseForDocs, setSelectedCaseForDocs] = useState<Case | null>(null);
+  const [caseDocuments, setCaseDocuments] = useState<GeneratedDocument[]>([]);
+  const [loadingDocuments, setLoadingDocuments] = useState(false);
 
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -208,6 +230,60 @@ function ClerkDashboard() {
     }
   };
 
+  const fetchCaseDocuments = async (caseId: number) => {
+    setLoadingDocuments(true);
+    try {
+      const response = await api.get(`/api/generate/case/${caseId}`);
+      setCaseDocuments(response.data);
+    } catch (err) {
+      console.error("Failed to fetch documents:", err);
+      setCaseDocuments([]);
+    } finally {
+      setLoadingDocuments(false);
+    }
+  };
+
+  const generateDocument = async (caseId: number, documentType: string) => {
+    setGenerating(documentType);
+    try {
+      const response = await api.post(`/api/generate/${documentType}/${caseId}`, {}, {
+        responseType: "blob",
+      });
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      const fileName = `${documentType}_${caseId}_DRAFT.pdf`;
+      link.href = url;
+      link.setAttribute("download", fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      await fetchCaseDocuments(caseId);
+
+      const newNotification = {
+        id: Date.now(),
+        message: `DRAFT ${documentType.toUpperCase()} generated for case ${caseId}`,
+        time: "Just now",
+        read: false,
+      };
+      setNotifications([newNotification, ...notifications]);
+      setUnreadCount((prev) => prev + 1);
+    } catch (err) {
+      console.error("Generation failed:", err);
+      alert("Failed to generate document. Please try again.");
+    } finally {
+      setGenerating(null);
+    }
+  };
+
+  const openDocumentsModal = async (caseItem: Case) => {
+    setSelectedCaseForDocs(caseItem);
+    await fetchCaseDocuments(caseItem.id);
+    setDocumentsModal(true);
+  };
+
   const handleTaskComplete = async (taskId: string) => {
     try {
       await api.patch(`/api/tasks/${taskId}/complete`);
@@ -243,7 +319,7 @@ function ClerkDashboard() {
         formData,
         {
           headers: { "Content-Type": "multipart/form-data" },
-        },
+        }
       );
 
       await fetchExhibits();
@@ -282,7 +358,7 @@ function ClerkDashboard() {
         {
           note: registryNote,
           timestamp: new Date().toISOString(),
-        },
+        }
       );
 
       setSelectedCaseForRegistry(null);
@@ -356,7 +432,7 @@ function ClerkDashboard() {
         setServiceError("Location access denied. Please enable GPS.");
         setServing(false);
       },
-      { enableHighAccuracy: true, timeout: 15000 },
+      { enableHighAccuracy: true, timeout: 15000 }
     );
   };
 
@@ -563,6 +639,74 @@ function ClerkDashboard() {
             </motion.div>
           )}
 
+          {/* Cases Table with Document Generation */}
+          <div className="mb-8 bg-white dark:bg-slate-900 rounded-2xl p-7 border border-slate-200 dark:border-slate-800 shadow-lg">
+            <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500 mb-5 flex items-center gap-2">
+              <File size={14} /> Case Documents
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-700">
+                    <th className="text-left py-3 px-2 text-[10px] font-black text-slate-400 uppercase">
+                      Case Number
+                    </th>
+                    <th className="text-left py-3 px-2 text-[10px] font-black text-slate-400 uppercase">
+                      Title
+                    </th>
+                    <th className="text-left py-3 px-2 text-[10px] font-black text-slate-400 uppercase">
+                      Client
+                    </th>
+                    <th className="text-center py-3 px-2 text-[10px] font-black text-slate-400 uppercase">
+                      Generate Document
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loadingCases ? (
+                    <tr>
+                      <td colSpan={4} className="text-center py-8">
+                        <Loader2 className="animate-spin mx-auto" size={24} />
+                      </td>
+                    </tr>
+                  ) : cases.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="text-center py-8 text-slate-400">
+                        No cases found
+                      </td>
+                    </tr>
+                  ) : (
+                    cases.map((caseItem) => (
+                      <tr
+                        key={caseItem.id}
+                        className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-all"
+                      >
+                        <td className="py-3 px-2 text-sm font-mono text-blue-600">
+                          {caseItem.caseNumber}
+                        </td>
+                        <td className="py-3 px-2 text-sm font-medium">
+                          {caseItem.title}
+                        </td>
+                        <td className="py-3 px-2 text-sm text-slate-600">
+                          {caseItem.clientName}
+                        </td>
+                        <td className="py-3 px-2 text-center">
+                          <button
+                            onClick={() => openDocumentsModal(caseItem)}
+                            className="p-2 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-lg transition-all"
+                            title="Generate Documents"
+                          >
+                            <FileText size={18} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           {/* Active Tab Content */}
           <AnimatePresence mode="wait">
             {activeTab === "tasks" && (
@@ -680,7 +824,7 @@ function ClerkDashboard() {
                             <p className="text-[10px] text-slate-500">
                               {exhibit.caseNumber} •{" "}
                               {new Date(
-                                exhibit.uploadedAt,
+                                exhibit.uploadedAt
                               ).toLocaleDateString()}
                             </p>
                             {exhibit.sourceOrigin && (
@@ -718,7 +862,7 @@ function ClerkDashboard() {
                       value={selectedCaseForRegistry?.id || ""}
                       onChange={(e) => {
                         const selected = cases.find(
-                          (c) => c.id === parseInt(e.target.value),
+                          (c) => c.id === parseInt(e.target.value)
                         );
                         setSelectedCaseForRegistry(selected || null);
                       }}
@@ -786,7 +930,7 @@ function ClerkDashboard() {
                       value={selectedCaseForService?.id || ""}
                       onChange={(e) => {
                         const selected = cases.find(
-                          (c) => c.id === parseInt(e.target.value),
+                          (c) => c.id === parseInt(e.target.value)
                         );
                         setSelectedCaseForService(selected || null);
                         setServiceError(null);
@@ -828,6 +972,119 @@ function ClerkDashboard() {
           </AnimatePresence>
         </main>
       </div>
+
+      {/* Documents Generation Modal */}
+      <AnimatePresence>
+        {documentsModal && selectedCaseForDocs && (
+          <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 print:hidden">
+            <div
+              className="absolute inset-0 bg-black/70 backdrop-blur-md"
+              onClick={() => setDocumentsModal(false)}
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative bg-white dark:bg-slate-900 w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl shadow-2xl"
+            >
+              <div className="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex justify-between items-center">
+                <div>
+                  <h2 className="text-xl font-black">Generate Documents</h2>
+                  <p className="text-xs text-slate-500">
+                    {selectedCaseForDocs.caseNumber} - {selectedCaseForDocs.title}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setDocumentsModal(false)}
+                  className="p-2 hover:bg-slate-100 rounded-lg"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6">
+                {/* Document Generation Buttons */}
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3">
+                    Generate DRAFT Documents
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { type: "notice", label: "Notice of Intention", icon: FileText },
+                      { type: "summons", label: "Summons to File Defence", icon: FileCheck },
+                      { type: "originating", label: "Originating Summons", icon: Scale },
+                      { type: "directions", label: "Summons for Directions", icon: ChevronRight },
+                      { type: "extension", label: "Extension of Time", icon: Calendar },
+                    ].map((doc) => (
+                      <button
+                        key={doc.type}
+                        onClick={() => generateDocument(selectedCaseForDocs.id, doc.type)}
+                        disabled={generating === doc.type}
+                        className="flex items-center gap-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-amber-500 transition-all disabled:opacity-50"
+                      >
+                        <doc.icon size={16} className="text-amber-600" />
+                        <span className="text-xs font-medium">{doc.label}</span>
+                        {generating === doc.type && (
+                          <Loader2 size={12} className="animate-spin ml-auto" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Existing Documents */}
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3">
+                    Generated Documents
+                  </h3>
+                  {loadingDocuments ? (
+                    <div className="flex justify-center py-8">
+                      <Loader2 className="animate-spin text-amber-600" size={24} />
+                    </div>
+                  ) : caseDocuments.length === 0 ? (
+                    <div className="text-center py-8 text-slate-400 text-sm">
+                      No documents generated yet
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {caseDocuments.map((doc) => (
+                        <div
+                          key={doc.id}
+                          className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-200 dark:border-slate-700"
+                        >
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <FileText size={14} className="text-amber-600" />
+                              <span className="text-sm font-medium">
+                                {doc.displayDocumentType ||
+                                  doc.documentType?.replace(/_/g, " ")}
+                              </span>
+                              <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                                DRAFT
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-500 mt-1">
+                              Generated: {new Date(doc.uploadedAt).toLocaleString()}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button className="p-2 hover:bg-slate-200 rounded-lg">
+                              <Download size={14} />
+                            </button>
+                            <span className="text-[9px] text-slate-400 italic">
+                              Awaiting Counsel's Seal
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Upload Modal */}
       <AnimatePresence>
@@ -915,10 +1172,7 @@ function ClerkDashboard() {
                 <button
                   onClick={handleUploadExhibit}
                   disabled={
-                    !selectedFile ||
-                    !uploadSource ||
-                    !selectedCaseId ||
-                    uploading
+                    !selectedFile || !uploadSource || !selectedCaseId || uploading
                   }
                   className="w-full py-3 bg-amber-700 text-white rounded-xl font-black text-xs uppercase hover:bg-amber-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >

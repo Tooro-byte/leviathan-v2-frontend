@@ -34,6 +34,9 @@ import {
   Phone,
   MapPin,
   Cake,
+  FileCheck,
+  Stamp,
+  Download,
 } from "lucide-react";
 
 // --- TYPES ---
@@ -54,6 +57,22 @@ interface CaseData {
   caseStage?: number;
 }
 
+interface GeneratedDocument {
+  id: number;
+  fileName: string;
+  documentType: string;
+  documentCategory: string;
+  certified: boolean;
+  certifiedAt?: string;
+  certifiedBy?: string;
+  fileHash: string;
+  uploadedAt: string;
+  uploadedBy: string;
+  fileSize: number;
+  displayDocumentType?: string;
+  verificationCode?: string;
+  verificationUrl?: string;
+}
 export default function LeviathanLedger() {
   const router = useRouter();
 
@@ -71,6 +90,15 @@ export default function LeviathanLedger() {
   const [caseToDelete, setCaseToDelete] = useState<CaseData | null>(null);
   const [formLoading, setFormLoading] = useState(false);
   const [auditInput, setAuditInput] = useState("");
+  
+  // --- Document Generation State ---
+  const [generating, setGenerating] = useState<string | null>(null);
+  const [certifying, setCertifying] = useState<number | null>(null);
+  const [caseDocuments, setCaseDocuments] = useState<GeneratedDocument[]>([]);
+  const [showDocumentsModal, setShowDocumentsModal] = useState(false);
+  const [selectedCaseForDocs, setSelectedCaseForDocs] = useState<CaseData | null>(null);
+  const [loadingDocuments, setLoadingDocuments] = useState(false);
+  const [downloading, setDownloading] = useState<number | null>(null);
 
   // --- FORM STATE - UPDATED with all new fields ---
   const [formData, setFormData] = useState({
@@ -166,6 +194,82 @@ export default function LeviathanLedger() {
     }
   };
 
+const fetchCaseDocuments = async (caseId: string) => {
+  setLoadingDocuments(true);
+  try {
+    const response = await api.get(`/api/generate/case/${caseId}`);
+    setCaseDocuments(response.data || []);
+  } catch (err) {
+    console.error("Failed to fetch documents:", err);
+    setCaseDocuments([]);
+  } finally {
+    setLoadingDocuments(false);
+  }
+};
+
+const generateDocument = async (caseId: string, documentType: string) => {
+  setGenerating(documentType);
+  try {
+    const response = await api.post(`/api/generate/${documentType}/${caseId}`, {}, {
+      responseType: "blob",
+    });
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement("a");
+    const fileName = `${documentType}_${caseId}_DRAFT.pdf`;
+    link.href = url;
+    link.setAttribute("download", fileName);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+    await fetchCaseDocuments(caseId);
+    alert(`${documentType.toUpperCase()} DRAFT generated successfully!`);
+  } catch (err) {
+    console.error("Generation failed:", err);
+    alert("Failed to generate document.");
+  } finally {
+    setGenerating(null);
+  }
+};
+
+const certifyDocument = async (documentId: number, caseId: string) => {
+  setCertifying(documentId);
+  try {
+    const response = await api.post(`/api/generate/certify/${documentId}`);
+    if (response.data) {
+      alert(`Document certified!\nVerification Code: ${response.data.verificationCode}`);
+      await fetchCaseDocuments(caseId);
+    }
+  } catch (err) {
+    console.error("Certification failed:", err);
+    alert("Failed to certify document.");
+  } finally {
+    setCertifying(null);
+  }
+};
+
+const downloadDocument = async (documentId: number, fileName: string) => {
+  setDownloading(documentId);
+  try {
+    const response = await api.get(`/api/generate/download/${documentId}`, {
+      responseType: "blob",
+    });
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", fileName);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error("Download failed:", err);
+    alert("Failed to download document.");
+  } finally {
+    setDownloading(null);
+  }
+};
+
   const handleCreateCase = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormLoading(true);
@@ -256,6 +360,12 @@ export default function LeviathanLedger() {
     if (!auditInput.trim()) return;
     console.log("Audit Entry Recorded:", auditInput);
     setAuditInput("");
+  };
+
+  const openDocumentsModal = async (caseItem: CaseData) => {
+    setSelectedCaseForDocs(caseItem);
+    await fetchCaseDocuments(caseItem.id);
+    setShowDocumentsModal(true);
   };
 
   // --- SEARCH & STATS ---
@@ -464,7 +574,7 @@ export default function LeviathanLedger() {
             </div>
           </div>
 
-          {/* --- LEDGER TABLE --- */}
+          {/* --- LEDGER TABLE WITH DOCUMENT BUTTONS --- */}
           <div className="bg-white dark:bg-[#0F1219] rounded-[3rem] border border-slate-200/60 dark:border-slate-800 shadow-2xl overflow-hidden">
             <div className="overflow-x-auto custom-scrollbar">
               <table className="w-full text-left border-collapse">
@@ -474,13 +584,14 @@ export default function LeviathanLedger() {
                     <th className="px-12 py-8">Case Identity</th>
                     <th className="px-12 py-8">Client</th>
                     <th className="px-12 py-8">Status</th>
+                    <th className="px-12 py-8 text-center">Documents</th>
                     <th className="px-12 py-8 text-right">Actions</th>
-                  </tr>
+                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
                   {loading ? (
                     <tr>
-                      <td colSpan={5} className="py-32 text-center">
+                      <td colSpan={6} className="py-32 text-center">
                         <Loader2
                           className="animate-spin inline text-blue-600"
                           size={40}
@@ -490,7 +601,7 @@ export default function LeviathanLedger() {
                   ) : filteredCases.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={5}
+                        colSpan={6}
                         className="py-32 text-center text-slate-500 font-bold uppercase tracking-widest"
                       >
                         No Records Found
@@ -520,6 +631,15 @@ export default function LeviathanLedger() {
                         <td className="px-12 py-8">
                           <StatusBadge status={c.status} />
                         </td>
+                        <td className="px-12 py-8 text-center" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => openDocumentsModal(c)}
+                            className="p-2 text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-xl transition-all"
+                            title="View/Generate Documents"
+                          >
+                            <FileText size={18} />
+                          </button>
+                        </td>
                         <td
                           className="px-12 py-8 text-right"
                           onClick={(e) => e.stopPropagation()}
@@ -542,6 +662,168 @@ export default function LeviathanLedger() {
             </div>
           </div>
         </main>
+
+        {/* --- DOCUMENTS MODAL --- */}
+        <AnimatePresence>
+          {showDocumentsModal && selectedCaseForDocs && (
+            <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 print:hidden">
+              <div
+                className="absolute inset-0 bg-black/70 backdrop-blur-md"
+                onClick={() => setShowDocumentsModal(false)}
+              />
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="relative bg-white dark:bg-slate-900 w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl shadow-2xl"
+              >
+                <div className="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex justify-between items-center">
+                  <div>
+                    <h2 className="text-xl font-black">Case Documents</h2>
+                    <p className="text-xs text-slate-500">
+                      {selectedCaseForDocs.caseNumber} - {selectedCaseForDocs.title}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowDocumentsModal(false)}
+                    className="p-2 hover:bg-slate-100 rounded-lg"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="p-6 space-y-6">
+                  {/* Document Generation Buttons */}
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3">
+                      Generate New Document
+                    </h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { type: "notice", label: "Notice of Intention", icon: FileText },
+                        { type: "summons", label: "Summons to File Defence", icon: FileCheck },
+                        { type: "originating", label: "Originating Summons", icon: Scale },
+                        { type: "directions", label: "Summons for Directions", icon: ChevronRight },
+                        { type: "extension", label: "Extension of Time", icon: Calendar },
+                      ].map((doc) => (
+                        <button
+                          key={doc.type}
+                          onClick={() => generateDocument(selectedCaseForDocs.id, doc.type)}
+                          disabled={generating === doc.type}
+                          className="flex items-center justify-between gap-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-500 transition-all disabled:opacity-50 group"
+                        >
+                          <div className="flex items-center gap-2">
+                            <doc.icon size={16} className="text-blue-600" />
+                            <span className="text-xs font-medium">{doc.label}</span>
+                          </div>
+                          {generating === doc.type ? (
+                            <Loader2 size={14} className="animate-spin text-blue-600" />
+                          ) : (
+                            <span className="text-[9px] font-bold text-blue-600 group-hover:text-blue-700">Generate</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Existing Documents - WITH VERIFY & SEAL BUTTON */}
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3">
+                      Generated Documents
+                    </h3>
+                    {caseDocuments.length === 0 ? (
+                      <div className="text-center py-8 text-slate-400 text-sm">
+                        No documents generated yet. Generate a document above.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {caseDocuments.map((doc) => {
+                          const isDraft = !doc.certified;
+                          return (
+                            <div
+                              key={doc.id}
+                              className={`flex items-center justify-between p-4 rounded-xl border ${
+                                isDraft
+                                  ? "bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"
+                                  : "bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800"
+                              }`}
+                            >
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <FileText size={16} className={isDraft ? "text-amber-600" : "text-emerald-600"} />
+                                  <span className="font-semibold text-sm">
+                                    {doc.displayDocumentType || doc.documentType?.replace(/_/g, " ")}
+                                  </span>
+                                  {isDraft ? (
+                                    <span className="text-[8px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 flex items-center gap-1">
+                                      <Stamp size={10} /> DRAFT
+                                    </span>
+                                  ) : (
+                                    <span className="text-[8px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 flex items-center gap-1">
+                                      <CheckCircle2 size={10} /> CERTIFIED
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[10px] text-slate-500 mt-1">
+  Generated: {new Date(doc.uploadedAt).toLocaleString()}
+  {doc.uploadedBy && <span className="ml-2">by: {doc.uploadedBy}</span>}
+</p>
+                                {doc.certified && doc.certifiedBy && (
+                                  <p className="text-[9px] text-emerald-600 mt-1 flex items-center gap-1">
+                                    <Stamp size={10} /> Sealed by: {doc.certifiedBy}
+                                  </p>
+                                )}
+                                {doc.certified && doc.verificationCode && (
+                                  <p className="text-[8px] text-blue-600 mt-1 font-mono">
+                                    Code: {doc.verificationCode}
+                                  </p>
+                                )}
+                                {isDraft && (
+                                  <p className="text-[8px] text-amber-600 mt-1 flex items-center gap-1">
+                                    <Stamp size={8} /> Awaiting verification and seal
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => downloadDocument(doc.id, doc.fileName)}
+                                  className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all"
+                                  title="Download"
+                                >
+                                  <Download size={16} />
+                                </button>
+                                {isDraft && (
+                                  <button
+                                    onClick={() => certifyDocument(doc.id, selectedCaseForDocs.id)}
+                                    disabled={certifying === doc.id}
+                                    className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-amber-700 transition-all disabled:opacity-50 shadow-md"
+                                  >
+                                    {certifying === doc.id ? (
+                                      <Loader2 size={12} className="animate-spin" />
+                                    ) : (
+                                      <Stamp size={12} />
+                                    )}
+                                    Verify & Seal
+                                  </button>
+                                )}
+                                {doc.certified && doc.verificationCode && (
+                                  <span className="text-[8px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
+                                    {doc.verificationCode}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+     
 
         {/* --- CASE DETAIL SIDEBAR --- */}
         <AnimatePresence>
@@ -1047,7 +1329,6 @@ function StatCard({ label, value, trend, color, icon }: any) {
 function StatusBadge({ status }: { status: string }) {
   const getStatusStyles = (status: string) => {
     const normalizedStatus = status?.toUpperCase() || "PENDING";
-
     const styles: Record<string, string> = {
       PENDING:
         "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800",
@@ -1076,7 +1357,6 @@ function StatusBadge({ status }: { status: string }) {
       REMANDED:
         "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800",
     };
-
     return (
       styles[normalizedStatus] ||
       "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700"
