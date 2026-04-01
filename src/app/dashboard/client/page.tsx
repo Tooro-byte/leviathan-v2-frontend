@@ -103,10 +103,16 @@ function ClientDashboard() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [downloading, setDownloading] = useState<number | null>(null);
-  const [qrModal, setQrModal] = useState<{ show: boolean; url: string; code: string }>({
+  const [qrModal, setQrModal] = useState<{ show: boolean; url: string; code: string; docId?: number }>({
     show: false,
     url: "",
     code: "",
+    docId: undefined,
+  });
+  const [stats, setStats] = useState({
+    legalDocsCount: 0,
+    evidenceCount: 0,
+    certifiedCount: 0,
   });
 
   useEffect(() => {
@@ -187,8 +193,19 @@ function ClientDashboard() {
     if (!caseData?.id) return;
     try {
       const response = await api.get(`/api/generate/case/${caseData.id}`);
-      setDocuments(response.data || []);
-      console.log("Fetched documents:", response.data);
+      const docs = response.data || [];
+      setDocuments(docs);
+      
+      // Update stats
+      const legalDocs = docs.filter((doc: Document) => doc.documentCategory === "LEGAL_DOCUMENT");
+      const evidence = docs.filter((doc: Document) => doc.documentCategory === "EVIDENCE");
+      const certified = legalDocs.filter((doc: Document) => doc.certified);
+      
+      setStats({
+        legalDocsCount: legalDocs.length,
+        evidenceCount: evidence.length,
+        certifiedCount: certified.length,
+      });
     } catch (err) {
       console.error("Failed to fetch documents:", err);
       setDocuments([]);
@@ -265,8 +282,8 @@ function ClientDashboard() {
     }
   };
 
-  const openQrModal = (url: string, code: string) => {
-    setQrModal({ show: true, url, code });
+  const openQrModal = (url: string, code: string, docId: number) => {
+    setQrModal({ show: true, url, code, docId });
   };
 
   const getStageIndex = (status: string = "", caseStage: number = 0) => {
@@ -328,6 +345,14 @@ function ClientDashboard() {
   const legalDocuments = useMemo(() => {
     return documents.filter(doc => doc.documentCategory === "LEGAL_DOCUMENT");
   }, [documents]);
+
+  const certifiedDocuments = useMemo(() => {
+    return legalDocuments.filter(doc => doc.certified === true);
+  }, [legalDocuments]);
+
+  const draftDocuments = useMemo(() => {
+    return legalDocuments.filter(doc => doc.certified !== true);
+  }, [legalDocuments]);
 
   const evidenceDocuments = useMemo(() => {
     return documents.filter(doc => doc.documentCategory === "EVIDENCE");
@@ -494,6 +519,19 @@ function ClientDashboard() {
               </div>
 
               <div className="flex items-center gap-4">
+                {/* Stats Badge */}
+                <div className="flex items-center gap-3 bg-white dark:bg-slate-800 rounded-xl px-4 py-2 shadow-sm border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center gap-2">
+                    <FileCheck size={14} className="text-emerald-600" />
+                    <span className="text-xs font-bold">{stats.certifiedCount} Certified</span>
+                  </div>
+                  <div className="w-px h-4 bg-slate-300 dark:bg-slate-600" />
+                  <div className="flex items-center gap-2">
+                    <FileText size={14} className="text-amber-600" />
+                    <span className="text-xs font-bold">{stats.evidenceCount} Evidence</span>
+                  </div>
+                </div>
+
                 {/* Notifications Dropdown */}
                 <div className="relative">
                   <button
@@ -791,20 +829,20 @@ function ClientDashboard() {
                   </div>
                 </section>
 
-                {/* Legal Documents Section (Certified) */}
-                {legalDocuments.length > 0 && (
+                {/* Certified Legal Documents Section */}
+                {certifiedDocuments.length > 0 && (
                   <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
                     <div className="flex items-center gap-2 mb-5 pb-2 border-b border-slate-200 dark:border-slate-700">
-                      <Stamp size={16} className="text-emerald-600" />
+                      <Verified size={16} className="text-emerald-600" />
                       <h3 className="text-[11px] font-black uppercase tracking-wider text-emerald-600">
                         Certified Legal Documents
                       </h3>
                       <span className="text-[8px] font-mono text-slate-400 ml-auto">
-                        {legalDocuments.length} document(s)
+                        {certifiedDocuments.length} document(s)
                       </span>
                     </div>
                     <div className="space-y-3">
-                      {legalDocuments.map((doc, index) => {
+                      {certifiedDocuments.map((doc, index) => {
                         const badge = getDocumentBadge(doc);
                         return (
                           <motion.div
@@ -826,9 +864,9 @@ function ClientDashboard() {
                                   <span className={`text-[7px] font-black px-1.5 py-0.5 rounded-full ${badge.color} flex items-center`}>
                                     {badge.icon}{badge.text}
                                   </span>
-                                  {doc.certified && doc.verificationCode && (
+                                  {doc.verificationCode && (
                                     <button
-                                      onClick={() => openQrModal(doc.verificationUrl || "", doc.verificationCode || "")}
+                                      onClick={() => openQrModal(doc.verificationUrl || "", doc.verificationCode || "", doc.id)}
                                       className="text-[7px] font-black px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 flex items-center gap-1 hover:bg-blue-200 transition-all"
                                     >
                                       <QrCode size={8} /> Verify
@@ -838,10 +876,18 @@ function ClientDashboard() {
                                 <div className="flex items-center gap-3 text-[9px] text-slate-500 flex-wrap">
                                   <span>📅 {new Date(doc.uploadedAt).toLocaleDateString()}</span>
                                   <span>📄 {(doc.fileSize / 1024).toFixed(1)} KB</span>
-                                  {doc.certified && doc.certifiedBy && (
+                                  {doc.certifiedBy && (
                                     <span className="text-emerald-600">✓ Certified by: {doc.certifiedBy}</span>
                                   )}
+                                  {doc.certifiedAt && (
+                                    <span className="text-slate-400">📅 {new Date(doc.certifiedAt).toLocaleDateString()}</span>
+                                  )}
                                 </div>
+                                {doc.fileHash && (
+                                  <p className="text-[6px] font-mono text-slate-400 mt-1 truncate">
+                                    Integrity: {doc.fileHash.substring(0, 24)}...
+                                  </p>
+                                )}
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
@@ -868,6 +914,74 @@ function ClientDashboard() {
                           </motion.div>
                         );
                       })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Draft Documents Section */}
+                {draftDocuments.length > 0 && (
+                  <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
+                    <div className="flex items-center gap-2 mb-5 pb-2 border-b border-slate-200 dark:border-slate-700">
+                      <Stamp size={16} className="text-amber-600" />
+                      <h3 className="text-[11px] font-black uppercase tracking-wider text-amber-600">
+                        Draft Documents (Awaiting Certification)
+                      </h3>
+                      <span className="text-[8px] font-mono text-slate-400 ml-auto">
+                        {draftDocuments.length} document(s)
+                      </span>
+                    </div>
+                    <div className="space-y-3">
+                      {draftDocuments.map((doc, index) => (
+                        <motion.div
+                          key={doc.id}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="flex items-center justify-between p-4 bg-amber-50/30 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800 hover:border-amber-400 transition-all group"
+                        >
+                          <div className="flex items-center gap-4 flex-1">
+                            <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-lg flex items-center justify-center">
+                              <FileText size={18} className="text-amber-700" />
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                <p className="font-semibold text-sm text-slate-800 dark:text-slate-200">
+                                  {doc.displayDocumentType || doc.documentType?.replace(/_/g, " ")}
+                                </p>
+                                <span className="text-[7px] font-black px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                                  DRAFT
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3 text-[9px] text-slate-500 flex-wrap">
+                                <span>📅 {new Date(doc.uploadedAt).toLocaleDateString()}</span>
+                                <span>📄 {(doc.fileSize / 1024).toFixed(1)} KB</span>
+                                <span className="text-amber-600">⏳ Awaiting counsel's seal</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleViewFile(doc.id, doc.fileName)}
+                              className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all"
+                              title="View Document"
+                            >
+                              <Eye size={15} className="text-slate-500 hover:text-amber-600" />
+                            </button>
+                            <button
+                              onClick={() => handleDownloadFile(doc.id, doc.fileName)}
+                              disabled={downloading === doc.id}
+                              className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all flex items-center gap-1"
+                              title="Download"
+                            >
+                              {downloading === doc.id ? (
+                                <Loader2 size={14} className="animate-spin text-amber-600" />
+                              ) : (
+                                <Download size={15} className="text-slate-500 hover:text-amber-600" />
+                              )}
+                            </button>
+                          </div>
+                        </motion.div>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -916,7 +1030,7 @@ function ClientDashboard() {
                                   {file.sourceOrigin && <span>📍 Source: {file.sourceOrigin}</span>}
                                 </div>
                                 {file.fileHash && (
-                                  <p className="text-[7px] font-mono text-slate-400 mt-1 truncate">
+                                  <p className="text-[6px] font-mono text-slate-400 mt-1 truncate">
                                     SHA-256: {file.fileHash.substring(0, 20)}...
                                   </p>
                                 )}
@@ -951,7 +1065,7 @@ function ClientDashboard() {
                 )}
 
                 {/* Empty State */}
-                {legalDocuments.length === 0 && evidenceDocuments.length === 0 && (
+                {documents.length === 0 && (
                   <div className="bg-white dark:bg-slate-900 rounded-3xl p-12 text-center border border-slate-200 dark:border-slate-800 shadow-xl">
                     <FileText size={48} className="mx-auto mb-4 text-slate-300 dark:text-slate-600" />
                     <p className="text-sm font-medium text-slate-500">No case files available</p>
@@ -1034,7 +1148,7 @@ function ClientDashboard() {
           <div className="fixed inset-0 z-[500] flex items-center justify-center p-6">
             <div
               className="absolute inset-0 bg-black/70 backdrop-blur-md"
-              onClick={() => setQrModal({ show: false, url: "", code: "" })}
+              onClick={() => setQrModal({ show: false, url: "", code: "", docId: undefined })}
             />
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
@@ -1055,7 +1169,7 @@ function ClientDashboard() {
                 </p>
               </div>
               <button
-                onClick={() => setQrModal({ show: false, url: "", code: "" })}
+                onClick={() => setQrModal({ show: false, url: "", code: "", docId: undefined })}
                 className="w-full py-3 bg-amber-700 text-white rounded-xl font-black text-xs uppercase hover:bg-amber-800 transition-all"
               >
                 Close

@@ -56,6 +56,8 @@ import {
   RefreshCw,
   Stamp,
   File,
+  Verified,
+  QrCode,
 } from "lucide-react";
 
 interface Task {
@@ -102,7 +104,9 @@ interface GeneratedDocument {
   certifiedBy?: string;
   fileHash: string;
   uploadedAt: string;
+  uploadedBy: string;
   displayDocumentType?: string;
+  verificationCode?: string;
 }
 
 function ClerkDashboard() {
@@ -144,14 +148,23 @@ function ClerkDashboard() {
   // Document Generation State
   const [generating, setGenerating] = useState<string | null>(null);
   const [documentsModal, setDocumentsModal] = useState(false);
-  const [selectedCaseForDocs, setSelectedCaseForDocs] = useState<Case | null>(null);
+  const [selectedCaseForDocs, setSelectedCaseForDocs] = useState<Case | null>(
+    null,
+  );
   const [caseDocuments, setCaseDocuments] = useState<GeneratedDocument[]>([]);
   const [loadingDocuments, setLoadingDocuments] = useState(false);
+  const [downloading, setDownloading] = useState<number | null>(null);
 
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState({
+    pendingTasks: 0,
+    totalCases: 0,
+    pendingRegistry: 0,
+    recentActivity: [] as string[],
+  });
 
   useEffect(() => {
     setMounted(true);
@@ -184,26 +197,32 @@ function ClerkDashboard() {
   };
 
   const fetchAllData = async () => {
-    setLoadingTasks(true);
-    setLoadingCases(true);
-    setLoadingExhibits(true);
+  setLoadingTasks(true);
+  setLoadingCases(true);
 
-    try {
-      await Promise.all([fetchTasks(), fetchCases(), fetchExhibits()]);
-    } catch (err) {
-      console.error("Error fetching data:", err);
-      setError("Failed to load dashboard data");
-    } finally {
-      setLoadingTasks(false);
-      setLoadingCases(false);
-      setLoadingExhibits(false);
-    }
-  };
+  try {
+    await fetchTasks();
+    await fetchCases();
+    await fetchExhibits(); // Added this line
+  } catch (err) {
+    console.error("Error fetching data:", err);
+    setError("Failed to load dashboard data");
+  } finally {
+    setLoadingTasks(false);
+    setLoadingCases(false);
+  }
+};
 
   const fetchTasks = async () => {
     try {
       const response = await api.get("/api/tasks/assigned");
       setTasks(response.data);
+      setStats((prev) => ({
+        ...prev,
+        pendingTasks: response.data.filter(
+          (t: Task) => t.status !== "COMPLETED",
+        ).length,
+      }));
     } catch (err) {
       console.error("Failed to fetch tasks:", err);
       setTasks([]);
@@ -214,6 +233,7 @@ function ClerkDashboard() {
     try {
       const response = await api.get("/api/cases");
       setCases(response.data);
+      setStats((prev) => ({ ...prev, totalCases: response.data.length }));
     } catch (err) {
       console.error("Failed to fetch cases:", err);
       setCases([]);
@@ -222,14 +242,13 @@ function ClerkDashboard() {
 
   const fetchExhibits = async () => {
     try {
-      const response = await api.get("/api/documents/recent");
+      const response = await api.get("/api/documents/evidence");
       setExhibits(response.data);
     } catch (err) {
       console.error("Failed to fetch exhibits:", err);
       setExhibits([]);
     }
   };
-
   const fetchCaseDocuments = async (caseId: number) => {
     setLoadingDocuments(true);
     try {
@@ -246,9 +265,13 @@ function ClerkDashboard() {
   const generateDocument = async (caseId: number, documentType: string) => {
     setGenerating(documentType);
     try {
-      const response = await api.post(`/api/generate/${documentType}/${caseId}`, {}, {
-        responseType: "blob",
-      });
+      const response = await api.post(
+        `/api/generate/${documentType}/${caseId}`,
+        {},
+        {
+          responseType: "blob",
+        },
+      );
 
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
@@ -270,11 +293,34 @@ function ClerkDashboard() {
       };
       setNotifications([newNotification, ...notifications]);
       setUnreadCount((prev) => prev + 1);
+      alert(`DRAFT ${documentType.toUpperCase()} generated successfully!`);
     } catch (err) {
       console.error("Generation failed:", err);
       alert("Failed to generate document. Please try again.");
     } finally {
       setGenerating(null);
+    }
+  };
+
+  const downloadDocument = async (documentId: number, fileName: string) => {
+    setDownloading(documentId);
+    try {
+      const response = await api.get(`/api/generate/download/${documentId}`, {
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Download failed:", err);
+      alert("Failed to download document.");
+    } finally {
+      setDownloading(null);
     }
   };
 
@@ -296,6 +342,7 @@ function ClerkDashboard() {
       };
       setNotifications([newNotification, ...notifications]);
       setUnreadCount((prev) => prev + 1);
+      alert("Task completed successfully!");
     } catch (err) {
       console.error("Failed to complete task:", err);
       alert("Failed to complete task. Please try again.");
@@ -319,7 +366,7 @@ function ClerkDashboard() {
         formData,
         {
           headers: { "Content-Type": "multipart/form-data" },
-        }
+        },
       );
 
       await fetchExhibits();
@@ -358,7 +405,7 @@ function ClerkDashboard() {
         {
           note: registryNote,
           timestamp: new Date().toISOString(),
-        }
+        },
       );
 
       setSelectedCaseForRegistry(null);
@@ -432,7 +479,7 @@ function ClerkDashboard() {
         setServiceError("Location access denied. Please enable GPS.");
         setServing(false);
       },
-      { enableHighAccuracy: true, timeout: 15000 }
+      { enableHighAccuracy: true, timeout: 15000 },
     );
   };
 
@@ -607,6 +654,23 @@ function ClerkDashboard() {
               </div>
 
               <div className="flex items-center gap-4">
+                {/* Stats Badge */}
+                <div className="flex items-center gap-3 bg-white dark:bg-slate-800 rounded-xl px-4 py-2 shadow-sm border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center gap-2">
+                    <ClipboardList size={14} className="text-amber-600" />
+                    <span className="text-xs font-bold">
+                      {stats.pendingTasks} Pending
+                    </span>
+                  </div>
+                  <div className="w-px h-4 bg-slate-300 dark:bg-slate-600" />
+                  <div className="flex items-center gap-2">
+                    <FileCheck size={14} className="text-emerald-600" />
+                    <span className="text-xs font-bold">
+                      {stats.totalCases} Cases
+                    </span>
+                  </div>
+                </div>
+
                 {/* Notifications */}
                 <div className="relative">
                   <button
@@ -623,6 +687,55 @@ function ClerkDashboard() {
                       </span>
                     )}
                   </button>
+
+                  <AnimatePresence>
+                    {showNotifications && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 10 }}
+                        className="absolute right-0 mt-2 w-80 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 z-50 overflow-hidden"
+                      >
+                        <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
+                          <h4 className="text-xs font-black uppercase tracking-wider">
+                            Recent Activity
+                          </h4>
+                          {unreadCount > 0 && (
+                            <button
+                              onClick={() => {
+                                setNotifications([]);
+                                setUnreadCount(0);
+                              }}
+                              className="text-[9px] text-amber-600 hover:text-amber-700"
+                            >
+                              Clear all
+                            </button>
+                          )}
+                        </div>
+                        <div className="max-h-96 overflow-y-auto">
+                          {notifications.length > 0 ? (
+                            notifications.map((notif) => (
+                              <div
+                                key={notif.id}
+                                className="p-3 border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-all"
+                              >
+                                <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                                  {notif.message}
+                                </p>
+                                <span className="text-[9px] text-slate-400 mt-1 block">
+                                  {notif.time}
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="p-6 text-center text-slate-400 text-xs">
+                              No recent activity
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </div>
             </div>
@@ -671,7 +784,10 @@ function ClerkDashboard() {
                     </tr>
                   ) : cases.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="text-center py-8 text-slate-400">
+                      <td
+                        colSpan={4}
+                        className="text-center py-8 text-slate-400"
+                      >
                         No cases found
                       </td>
                     </tr>
@@ -824,7 +940,7 @@ function ClerkDashboard() {
                             <p className="text-[10px] text-slate-500">
                               {exhibit.caseNumber} •{" "}
                               {new Date(
-                                exhibit.uploadedAt
+                                exhibit.uploadedAt,
                               ).toLocaleDateString()}
                             </p>
                             {exhibit.sourceOrigin && (
@@ -862,7 +978,7 @@ function ClerkDashboard() {
                       value={selectedCaseForRegistry?.id || ""}
                       onChange={(e) => {
                         const selected = cases.find(
-                          (c) => c.id === parseInt(e.target.value)
+                          (c) => c.id === parseInt(e.target.value),
                         );
                         setSelectedCaseForRegistry(selected || null);
                       }}
@@ -930,7 +1046,7 @@ function ClerkDashboard() {
                       value={selectedCaseForService?.id || ""}
                       onChange={(e) => {
                         const selected = cases.find(
-                          (c) => c.id === parseInt(e.target.value)
+                          (c) => c.id === parseInt(e.target.value),
                         );
                         setSelectedCaseForService(selected || null);
                         setServiceError(null);
@@ -991,7 +1107,8 @@ function ClerkDashboard() {
                 <div>
                   <h2 className="text-xl font-black">Generate Documents</h2>
                   <p className="text-xs text-slate-500">
-                    {selectedCaseForDocs.caseNumber} - {selectedCaseForDocs.title}
+                    {selectedCaseForDocs.caseNumber} -{" "}
+                    {selectedCaseForDocs.title}
                   </p>
                 </div>
                 <button
@@ -1010,22 +1127,55 @@ function ClerkDashboard() {
                   </h3>
                   <div className="grid grid-cols-2 gap-3">
                     {[
-                      { type: "notice", label: "Notice of Intention", icon: FileText },
-                      { type: "summons", label: "Summons to File Defence", icon: FileCheck },
-                      { type: "originating", label: "Originating Summons", icon: Scale },
-                      { type: "directions", label: "Summons for Directions", icon: ChevronRight },
-                      { type: "extension", label: "Extension of Time", icon: Calendar },
+                      {
+                        type: "notice",
+                        label: "Notice of Intention",
+                        icon: FileText,
+                      },
+                      {
+                        type: "summons",
+                        label: "Summons to File Defence",
+                        icon: FileCheck,
+                      },
+                      {
+                        type: "originating",
+                        label: "Originating Summons",
+                        icon: Scale,
+                      },
+                      {
+                        type: "directions",
+                        label: "Summons for Directions",
+                        icon: ChevronRight,
+                      },
+                      {
+                        type: "extension",
+                        label: "Extension of Time",
+                        icon: Calendar,
+                      },
                     ].map((doc) => (
                       <button
                         key={doc.type}
-                        onClick={() => generateDocument(selectedCaseForDocs.id, doc.type)}
+                        onClick={() =>
+                          generateDocument(selectedCaseForDocs.id, doc.type)
+                        }
                         disabled={generating === doc.type}
-                        className="flex items-center gap-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-amber-500 transition-all disabled:opacity-50"
+                        className="flex items-center justify-between gap-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-amber-500 transition-all disabled:opacity-50 group"
                       >
-                        <doc.icon size={16} className="text-amber-600" />
-                        <span className="text-xs font-medium">{doc.label}</span>
-                        {generating === doc.type && (
-                          <Loader2 size={12} className="animate-spin ml-auto" />
+                        <div className="flex items-center gap-2">
+                          <doc.icon size={16} className="text-amber-600" />
+                          <span className="text-xs font-medium">
+                            {doc.label}
+                          </span>
+                        </div>
+                        {generating === doc.type ? (
+                          <Loader2
+                            size={14}
+                            className="animate-spin text-amber-600"
+                          />
+                        ) : (
+                          <span className="text-[9px] font-bold text-amber-600 group-hover:text-amber-700">
+                            Generate
+                          </span>
                         )}
                       </button>
                     ))}
@@ -1039,44 +1189,106 @@ function ClerkDashboard() {
                   </h3>
                   {loadingDocuments ? (
                     <div className="flex justify-center py-8">
-                      <Loader2 className="animate-spin text-amber-600" size={24} />
+                      <Loader2
+                        className="animate-spin text-amber-600"
+                        size={24}
+                      />
                     </div>
                   ) : caseDocuments.length === 0 ? (
                     <div className="text-center py-8 text-slate-400 text-sm">
                       No documents generated yet
                     </div>
                   ) : (
-                    <div className="space-y-2">
-                      {caseDocuments.map((doc) => (
-                        <div
-                          key={doc.id}
-                          className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-200 dark:border-slate-700"
-                        >
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <FileText size={14} className="text-amber-600" />
-                              <span className="text-sm font-medium">
-                                {doc.displayDocumentType ||
-                                  doc.documentType?.replace(/_/g, " ")}
-                              </span>
-                              <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
-                                DRAFT
-                              </span>
+                    <div className="space-y-3">
+                      {caseDocuments.map((doc) => {
+                        const isDraft = !doc.certified;
+                        return (
+                          <div
+                            key={doc.id}
+                            className={`flex items-center justify-between p-4 rounded-xl border ${
+                              isDraft
+                                ? "bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"
+                                : "bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800"
+                            }`}
+                          >
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <FileText
+                                  size={16}
+                                  className={
+                                    isDraft
+                                      ? "text-amber-600"
+                                      : "text-emerald-600"
+                                  }
+                                />
+                                <span className="font-semibold text-sm">
+                                  {doc.displayDocumentType ||
+                                    doc.documentType?.replace(/_/g, " ")}
+                                </span>
+                                {isDraft ? (
+                                  <span className="text-[8px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 flex items-center gap-1">
+                                    <Stamp size={10} /> DRAFT
+                                  </span>
+                                ) : (
+                                  <span className="text-[8px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 flex items-center gap-1">
+                                    <CheckCircle2 size={10} /> CERTIFIED
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-500 mt-1">
+                                Generated:{" "}
+                                {new Date(doc.uploadedAt).toLocaleString()}
+                                {doc.uploadedBy && (
+                                  <span className="ml-2">
+                                    by: {doc.uploadedBy}
+                                  </span>
+                                )}
+                              </p>
+                              {doc.certified && doc.certifiedBy && (
+                                <p className="text-[9px] text-emerald-600 mt-1 flex items-center gap-1">
+                                  <Stamp size={10} /> Sealed by:{" "}
+                                  {doc.certifiedBy}
+                                </p>
+                              )}
+                              {doc.certified && doc.verificationCode && (
+                                <p className="text-[8px] text-blue-600 mt-1 font-mono">
+                                  Code: {doc.verificationCode}
+                                </p>
+                              )}
+                              {isDraft && (
+                                <p className="text-[8px] text-amber-600 mt-1 flex items-center gap-1">
+                                  <Stamp size={8} /> Awaiting verification and
+                                  seal
+                                </p>
+                              )}
                             </div>
-                            <p className="text-[10px] text-slate-500 mt-1">
-                              Generated: {new Date(doc.uploadedAt).toLocaleString()}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() =>
+                                  downloadDocument(doc.id, doc.fileName)
+                                }
+                                disabled={downloading === doc.id}
+                                className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all"
+                                title="Download"
+                              >
+                                {downloading === doc.id ? (
+                                  <Loader2
+                                    size={14}
+                                    className="animate-spin text-amber-600"
+                                  />
+                                ) : (
+                                  <Download size={16} />
+                                )}
+                              </button>
+                              {doc.certified && doc.verificationCode && (
+                                <span className="text-[8px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
+                                  {doc.verificationCode}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <button className="p-2 hover:bg-slate-200 rounded-lg">
-                              <Download size={14} />
-                            </button>
-                            <span className="text-[9px] text-slate-400 italic">
-                              Awaiting Counsel's Seal
-                            </span>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -1172,7 +1384,10 @@ function ClerkDashboard() {
                 <button
                   onClick={handleUploadExhibit}
                   disabled={
-                    !selectedFile || !uploadSource || !selectedCaseId || uploading
+                    !selectedFile ||
+                    !uploadSource ||
+                    !selectedCaseId ||
+                    uploading
                   }
                   className="w-full py-3 bg-amber-700 text-white rounded-xl font-black text-xs uppercase hover:bg-amber-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
