@@ -407,8 +407,8 @@ export default function WholesomeHadesVault({
                         SHA-256 Fingerprint
                       </p>
                       <p className="text-[10px] font-mono text-stone-500 group-hover:text-stone-300 transition-colors">
-                        {doc.fileHash.substring(0, 24)}...
-                      </p>
+  {doc.fileHash ? doc.fileHash.substring(0, 24) : 'No hash available'}...
+</p>
                     </div>
                     <button
                       onClick={() =>

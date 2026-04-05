@@ -197,21 +197,21 @@ function ClerkDashboard() {
   };
 
   const fetchAllData = async () => {
-  setLoadingTasks(true);
-  setLoadingCases(true);
+    setLoadingTasks(true);
+    setLoadingCases(true);
+    setLoadingExhibits(true);
 
-  try {
-    await fetchTasks();
-    await fetchCases();
-    await fetchExhibits(); // Added this line
-  } catch (err) {
-    console.error("Error fetching data:", err);
-    setError("Failed to load dashboard data");
-  } finally {
-    setLoadingTasks(false);
-    setLoadingCases(false);
-  }
-};
+    try {
+      await Promise.all([fetchTasks(), fetchCases(), fetchExhibits()]);
+    } catch (err) {
+      console.error("Error fetching data:", err);
+      setError("Failed to load dashboard data");
+    } finally {
+      setLoadingTasks(false);
+      setLoadingCases(false);
+      setLoadingExhibits(false);
+    }
+  };
 
   const fetchTasks = async () => {
     try {
@@ -241,14 +241,21 @@ function ClerkDashboard() {
   };
 
   const fetchExhibits = async () => {
+    setLoadingExhibits(true);
     try {
       const response = await api.get("/api/documents/evidence");
-      setExhibits(response.data);
+      // Ensure we have an array
+      const evidenceData = Array.isArray(response.data) ? response.data : [];
+      setExhibits(evidenceData);
+      console.log("Fetched exhibits:", evidenceData.length);
     } catch (err) {
       console.error("Failed to fetch exhibits:", err);
       setExhibits([]);
+    } finally {
+      setLoadingExhibits(false);
     }
   };
+
   const fetchCaseDocuments = async (caseId: number) => {
     setLoadingDocuments(true);
     try {
@@ -302,28 +309,63 @@ function ClerkDashboard() {
     }
   };
 
+  // ==================== DOWNLOAD & VIEW FUNCTIONS ====================
+
+  // DOWNLOAD FUNCTION - Fixed for Clerk Dashboard
   const downloadDocument = async (documentId: number, fileName: string) => {
     setDownloading(documentId);
     try {
+      console.log(`Downloading document ID: ${documentId}`);
+
+      // Use the correct endpoint - /api/generate/download/{documentId}
       const response = await api.get(`/api/generate/download/${documentId}`, {
         responseType: "blob",
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+
+      // Create blob URL and trigger download
+      const blob = new Blob([response.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.setAttribute("download", fileName);
+      link.setAttribute("download", fileName || `document-${documentId}.pdf`);
       document.body.appendChild(link);
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch (err) {
+
+      console.log("Download started successfully");
+    } catch (err: any) {
       console.error("Download failed:", err);
-      alert("Failed to download document.");
+      const errorMsg =
+        err.response?.data?.error ||
+        "Failed to download document. Please try again.";
+      alert(errorMsg);
     } finally {
       setDownloading(null);
     }
   };
 
+  // VIEW FUNCTION (opens in new tab) - Fixed for Clerk Dashboard
+  const viewDocument = async (documentId: number) => {
+    try {
+      console.log(`Viewing document ID: ${documentId}`);
+
+      // Use the correct endpoint - /api/generate/view/{documentId}
+      const response = await api.get(`/api/generate/view/${documentId}`, {
+        responseType: "blob",
+      });
+
+      const blob = new Blob([response.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, "_blank");
+
+      // Clean up after 1 minute
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+    } catch (err: any) {
+      console.error("View failed:", err);
+      alert("Failed to open document for viewing. Please try again.");
+    }
+  };
   const openDocumentsModal = async (caseItem: Case) => {
     setSelectedCaseForDocs(caseItem);
     await fetchCaseDocuments(caseItem.id);
@@ -949,9 +991,43 @@ function ClerkDashboard() {
                               </p>
                             )}
                           </div>
-                          <button className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all">
-                            <Download size={16} className="text-slate-500" />
-                          </button>
+                          <div className="flex gap-2">
+                            {/* Download Button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (exhibit.id) {
+                                  downloadDocument(
+                                    exhibit.id,
+                                    exhibit.fileName,
+                                  );
+                                }
+                              }}
+                              disabled={downloading === exhibit.id}
+                              className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all disabled:opacity-50"
+                              title="Download Exhibit"
+                            >
+                              {downloading === exhibit.id ? (
+                                <Loader2 size={16} className="animate-spin" />
+                              ) : (
+                                <Download size={16} />
+                              )}
+                            </button>
+
+                            {/* View Button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (exhibit.id) {
+                                  viewDocument(exhibit.id);
+                                }
+                              }}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                              title="View Exhibit"
+                            >
+                              <Eye size={16} />
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
